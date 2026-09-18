@@ -1,5 +1,14 @@
 package com.rexyy.app.ui.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -21,19 +30,23 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,12 +58,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.rexyy.app.model.ChatMessage
+import androidx.core.content.ContextCompat
 import com.rexyy.app.ui.components.ChatInputBar
 import com.rexyy.app.ui.components.MessageBubble
 import com.rexyy.app.ui.components.RexyyTopBar
@@ -66,6 +80,7 @@ import com.rexyy.app.ui.theme.RexyyPurpleSecondary
 import com.rexyy.app.ui.theme.RexyyTextMuted
 import com.rexyy.app.ui.theme.RexyyTextPrimary
 import com.rexyy.app.ui.theme.RexyyTextSecondary
+import com.rexyy.app.voice.VoiceState
 
 @Composable
 fun ChatScreen(
@@ -75,10 +90,45 @@ fun ChatScreen(
     onClearChat: () -> Unit,
     onSettingsClick: () -> Unit,
     onDismissError: () -> Unit,
+    onStartVoiceInput: () -> Unit = {},
+    onCancelVoiceInput: () -> Unit = {},
+    onStopSpeaking: () -> Unit = {},
+    onMicrophonePermissionDenied: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
     var showClearConfirmation by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            onStartVoiceInput()
+        } else {
+            onMicrophonePermissionDenied()
+        }
+    }
+
+    val handleMicClick: () -> Unit = {
+        when (uiState.voiceState) {
+            VoiceState.LISTENING -> onCancelVoiceInput()
+            VoiceState.SPEAKING -> onStopSpeaking()
+            VoiceState.PROCESSING -> { /* In flight */ }
+            VoiceState.IDLE -> {
+                val hasPermission = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+
+                if (hasPermission) {
+                    onStartVoiceInput()
+                } else {
+                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            }
+        }
+    }
 
     // Automatically scroll to latest message
     LaunchedEffect(uiState.messages.size, uiState.isLoading) {
@@ -96,13 +146,96 @@ fun ChatScreen(
             )
         },
         bottomBar = {
-            ChatInputBar(
-                inputText = uiState.inputText,
-                onInputChange = onInputChange,
-                onSendClick = onSendMessage,
-                isLoading = uiState.isLoading,
-                modifier = Modifier.imePadding()
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+            ) {
+                // Live voice state banner
+                AnimatedVisibility(
+                    visible = uiState.voiceState != VoiceState.IDLE,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Surface(
+                        color = RexyyDarkSurfaceVariant,
+                        border = BorderStroke(
+                            1.dp,
+                            if (uiState.voiceState == VoiceState.LISTENING) RexyyErrorRed.copy(alpha = 0.5f)
+                            else RexyyCyanPrimary.copy(alpha = 0.5f)
+                        ),
+                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("voice_state_banner")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            when (uiState.voiceState) {
+                                VoiceState.LISTENING -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(RexyyErrorRed)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = uiState.voiceStatusMessage ?: "Listening... Speak in English or Hindi",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = RexyyTextPrimary),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TextButton(onClick = onCancelVoiceInput) {
+                                        Text("Cancel", style = MaterialTheme.typography.labelMedium.copy(color = RexyyErrorRed))
+                                    }
+                                }
+                                VoiceState.PROCESSING -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        color = RexyyCyanPrimary,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = uiState.voiceStatusMessage ?: "Processing...",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = RexyyTextPrimary),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                VoiceState.SPEAKING -> {
+                                    Icon(
+                                        imageVector = Icons.Default.VolumeUp,
+                                        contentDescription = null,
+                                        tint = RexyyPurpleSecondary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = uiState.voiceStatusMessage ?: "REXYY is speaking...",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = RexyyTextPrimary),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TextButton(onClick = onStopSpeaking) {
+                                        Text("Stop", style = MaterialTheme.typography.labelMedium.copy(color = RexyyPurpleSecondary))
+                                    }
+                                }
+                                VoiceState.IDLE -> Unit
+                            }
+                        }
+                    }
+                }
+
+                ChatInputBar(
+                    inputText = uiState.inputText,
+                    onInputChange = onInputChange,
+                    onSendClick = onSendMessage,
+                    isLoading = uiState.isLoading,
+                    voiceState = uiState.voiceState,
+                    onMicClick = handleMicClick
+                )
+            }
         },
         containerColor = RexyyDarkBackground,
         modifier = modifier
@@ -233,10 +366,10 @@ private fun EmptyStateView(
     modifier: Modifier = Modifier
 ) {
     val suggestions = listOf(
-        "Explain quantum computing in simple terms",
-        "Write a clean Kotlin coroutines flow snippet",
-        "Give me 3 productivity tips for today",
-        "Summarize the architecture of Android Jetpack"
+        "Open YouTube",
+        "Alarm 7 baje lagao",
+        "Search Google for latest tech news",
+        "Explain quantum computing in simple terms"
     )
 
     Column(
@@ -264,7 +397,7 @@ private fun EmptyStateView(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "REXYY AI Ready",
+            text = "REXYY Voice & AI Ready",
             style = MaterialTheme.typography.titleLarge.copy(
                 fontWeight = FontWeight.Bold,
                 color = RexyyTextPrimary,
@@ -275,7 +408,7 @@ private fun EmptyStateView(
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = "Ask questions, generate ideas, or brainstorm solutions. Tap a prompt below to get started.",
+            text = "Tap the microphone or type below. Supports voice commands and AI conversation in English & Hindi.",
             style = MaterialTheme.typography.bodyMedium.copy(
                 color = RexyyTextSecondary,
                 textAlign = TextAlign.Center,
@@ -301,7 +434,10 @@ private fun EmptyStateView(
                     },
                     icon = {
                         Icon(
-                            imageVector = Icons.Outlined.AutoAwesome,
+                            imageVector = if (prompt.contains("YouTube") || prompt.contains("alarm") || prompt.contains("Google"))
+                                Icons.Outlined.Mic
+                            else
+                                Icons.Outlined.AutoAwesome,
                             contentDescription = null,
                             tint = RexyyPurpleSecondary,
                             modifier = Modifier.size(16.dp)

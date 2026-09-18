@@ -30,8 +30,15 @@ class SecureStorage(context: Context) {
         private const val GCM_TAG_LENGTH = 128
         private const val IV_LENGTH = 12
 
+        private const val KEY_VOICE_COMMANDS_ENABLED = "voice_commands_enabled"
+        private const val KEY_VOICE_REPLIES_ENABLED = "voice_replies_enabled"
+        private const val KEY_VOICE_LANGUAGE = "voice_language"
+
         const val DEFAULT_MODEL = "gpt-4o-mini"
         const val DEFAULT_BASE_URL = "https://api.openai.com/v1/"
+        const val VOICE_LANG_DEFAULT = "SYSTEM_DEFAULT"
+        const val VOICE_LANG_EN = "en-US"
+        const val VOICE_LANG_HI = "hi-IN"
     }
 
     @Volatile
@@ -147,5 +154,29 @@ class SecureStorage(context: Context) {
 
     fun getBaseUrl(): String {
         return prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
+    }
+
+    fun isVoiceCommandsEnabled(): Boolean {
+        return prefs.getBoolean(KEY_VOICE_COMMANDS_ENABLED, true)
+    }
+
+    fun setVoiceCommandsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VOICE_COMMANDS_ENABLED, enabled).apply()
+    }
+
+    fun isVoiceRepliesEnabled(): Boolean {
+        return prefs.getBoolean(KEY_VOICE_REPLIES_ENABLED, true)
+    }
+
+    fun setVoiceRepliesEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VOICE_REPLIES_ENABLED, enabled).apply()
+    }
+
+    fun getVoiceLanguage(): String {
+        return prefs.getString(KEY_VOICE_LANGUAGE, VOICE_LANG_DEFAULT) ?: VOICE_LANG_DEFAULT
+    }
+
+    fun setVoiceLanguage(language: String) {
+        prefs.edit().putString(KEY_VOICE_LANGUAGE, language).apply()
     }
 }

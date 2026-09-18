@@ -55,13 +55,20 @@ fun RexyyMainScreen(
                     onSendMessage = { viewModel.sendMessage() },
                     onClearChat = { viewModel.clearConversation() },
                     onSettingsClick = { currentScreen = Screen.Settings },
-                    onDismissError = { viewModel.clearError() }
+                    onDismissError = { viewModel.clearError() },
+                    onStartVoiceInput = { viewModel.startVoiceInput() },
+                    onCancelVoiceInput = { viewModel.cancelVoiceInput() },
+                    onStopSpeaking = { viewModel.stopSpeaking() },
+                    onMicrophonePermissionDenied = { viewModel.onMicrophonePermissionDenied() }
                 )
             }
             is Screen.Settings -> {
                 SettingsScreen(
                     currentMaskedKey = uiState.maskedApiKey,
                     currentModel = uiState.currentModel,
+                    isVoiceCommandsEnabled = uiState.isVoiceCommandsEnabled,
+                    isVoiceRepliesEnabled = uiState.isVoiceRepliesEnabled,
+                    voiceLanguage = uiState.voiceLanguage,
                     onBackClick = {
                         currentScreen = if (uiState.hasApiKey) Screen.Chat else Screen.Setup
                     },
@@ -74,6 +81,15 @@ fun RexyyMainScreen(
                     },
                     onUpdateModel = { newModel ->
                         viewModel.updateModel(newModel)
+                    },
+                    onUpdateVoiceCommandsEnabled = { enabled ->
+                        viewModel.setVoiceCommandsEnabled(enabled)
+                    },
+                    onUpdateVoiceRepliesEnabled = { enabled ->
+                        viewModel.setVoiceRepliesEnabled(enabled)
+                    },
+                    onUpdateVoiceLanguage = { lang ->
+                        viewModel.setVoiceLanguage(lang)
                     },
                     onClearAllHistory = {
                         viewModel.clearConversation()

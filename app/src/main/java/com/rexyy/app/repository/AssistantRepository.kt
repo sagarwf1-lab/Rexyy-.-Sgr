@@ -71,6 +71,38 @@ class AssistantRepository(
         refreshApiBaseUrl()
     }
 
+    fun isVoiceCommandsEnabled(): Boolean = secureStorage.isVoiceCommandsEnabled()
+    fun setVoiceCommandsEnabled(enabled: Boolean) = secureStorage.setVoiceCommandsEnabled(enabled)
+
+    fun isVoiceRepliesEnabled(): Boolean = secureStorage.isVoiceRepliesEnabled()
+    fun setVoiceRepliesEnabled(enabled: Boolean) = secureStorage.setVoiceRepliesEnabled(enabled)
+
+    fun getVoiceLanguage(): String = secureStorage.getVoiceLanguage()
+    fun setVoiceLanguage(language: String) = secureStorage.setVoiceLanguage(language)
+
+    /**
+     * Records a local voice command interaction directly into local Room database history:
+     * 1. Inserts the user's spoken command.
+     * 2. Inserts REXYY's confirmation or action reply.
+     */
+    suspend fun recordCommandInteraction(userText: String, replyText: String, isError: Boolean = false): ChatMessage = withContext(Dispatchers.IO) {
+        val userEntity = ChatMessageEntity(
+            content = userText.trim(),
+            sender = MessageSender.USER.name,
+            timestamp = System.currentTimeMillis()
+        )
+        chatDao.insertMessage(userEntity)
+
+        val assistantEntity = ChatMessageEntity(
+            content = replyText.trim(),
+            sender = MessageSender.ASSISTANT.name,
+            timestamp = System.currentTimeMillis() + 1,
+            isError = isError
+        )
+        val id = chatDao.insertMessage(assistantEntity)
+        assistantEntity.copy(id = id).toDomain()
+    }
+
     /**
      * Sends a user message to the AI Assistant:
      * 1. Saves user message in local Room DB.
