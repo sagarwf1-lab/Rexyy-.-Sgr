@@ -2,7 +2,11 @@ package com.rexyy.app.ui.chat
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.rexyy.app.network.NetworkResult
 import com.rexyy.app.repository.AssistantRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,8 +17,14 @@ import kotlinx.coroutines.launch
 
 class ChatViewModel(
     application: Application,
-    private val repository: AssistantRepository = AssistantRepository(application)
+    private val repository: AssistantRepository
 ) : AndroidViewModel(application) {
+
+    // Secondary constructor to ensure Java bytecode compatibility for AndroidViewModelFactory reflection
+    constructor(application: Application) : this(
+        application = application,
+        repository = AssistantRepository(application)
+    )
 
     private val _uiState = MutableStateFlow(
         ChatUiState(
@@ -104,5 +114,16 @@ class ChatViewModel(
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    companion object {
+        val Factory: ViewModelProvider.Factory = viewModelFactory {
+            initializer {
+                val application = (this[APPLICATION_KEY] as? Application)
+                    ?: throw IllegalStateException("Application must be provided in CreationExtras to instantiate ChatViewModel")
+                val repository = AssistantRepository(application)
+                ChatViewModel(application, repository)
+            }
+        }
     }
 }

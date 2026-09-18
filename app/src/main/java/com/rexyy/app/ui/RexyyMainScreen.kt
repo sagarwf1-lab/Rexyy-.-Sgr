@@ -20,7 +20,7 @@ import com.rexyy.app.ui.theme.RexyyDarkBackground
 
 @Composable
 fun RexyyMainScreen(
-    viewModel: ChatViewModel = viewModel(),
+    viewModel: ChatViewModel = viewModel(factory = ChatViewModel.Factory),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
