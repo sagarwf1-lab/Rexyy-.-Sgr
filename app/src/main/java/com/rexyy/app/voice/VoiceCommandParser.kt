@@ -1,5 +1,6 @@
 package com.rexyy.app.voice
 
+import com.rexyy.app.network.provider.AiProviderType
 import java.util.regex.Pattern
 
 object VoiceCommandParser {
@@ -13,6 +14,20 @@ object VoiceCommandParser {
         if (trimmed.isBlank()) return VoiceCommand.AiChat("")
 
         val lower = trimmed.lowercase()
+
+        // Explicit AI Provider overrides (e.g. "Ask Gemini what black holes are")
+        if (lower.startsWith("ask gemini ") || lower.startsWith("gemini se pucho ")) {
+            val query = trimmed.replace("(?i)^ask gemini\\s+(to\\s+)?".toRegex(), "")
+                .replace("(?i)^gemini se pucho\\s+".toRegex(), "")
+                .trim()
+            return VoiceCommand.AiChat(prompt = query.ifBlank { trimmed }, providerOverride = AiProviderType.GEMINI)
+        }
+        if (lower.startsWith("ask openai ") || lower.startsWith("ask chatgpt ") || lower.startsWith("openai se pucho ")) {
+            val query = trimmed.replace("(?i)^ask (openai|chatgpt)\\s+(to\\s+)?".toRegex(), "")
+                .replace("(?i)^openai se pucho\\s+".toRegex(), "")
+                .trim()
+            return VoiceCommand.AiChat(prompt = query.ifBlank { trimmed }, providerOverride = AiProviderType.OPENAI)
+        }
 
         // 1. Bluetooth settings
         if (isBluetoothCommand(lower)) {

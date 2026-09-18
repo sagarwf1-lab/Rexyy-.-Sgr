@@ -45,6 +45,15 @@ fun RexyyMainScreen(
                     onApiKeySaved = { key ->
                         viewModel.saveApiKey(key)
                         currentScreen = Screen.Chat
+                    },
+                    onProviderAndKeySaved = { key, provider ->
+                        viewModel.selectProvider(provider)
+                        if (provider == com.rexyy.app.network.provider.AiProviderType.GEMINI) {
+                            viewModel.updateGeminiApiKey(key)
+                        } else {
+                            viewModel.updateOpenAiApiKey(key)
+                        }
+                        currentScreen = Screen.Chat
                     }
                 )
             }
@@ -66,11 +75,38 @@ fun RexyyMainScreen(
                 SettingsScreen(
                     currentMaskedKey = uiState.maskedApiKey,
                     currentModel = uiState.currentModel,
+                    selectedProvider = uiState.selectedProvider,
+                    currentMaskedOpenAiKey = uiState.maskedOpenAiApiKey,
+                    currentMaskedGeminiKey = uiState.maskedGeminiApiKey,
+                    openAiModel = uiState.openAiModel,
+                    geminiModel = uiState.geminiModel,
+                    isAutoFallbackEnabled = uiState.isAutoFallbackEnabled,
                     isVoiceCommandsEnabled = uiState.isVoiceCommandsEnabled,
                     isVoiceRepliesEnabled = uiState.isVoiceRepliesEnabled,
                     voiceLanguage = uiState.voiceLanguage,
                     onBackClick = {
                         currentScreen = if (uiState.hasApiKey) Screen.Chat else Screen.Setup
+                    },
+                    onSelectProvider = { provider ->
+                        viewModel.selectProvider(provider)
+                    },
+                    onUpdateOpenAiApiKey = { key ->
+                        viewModel.updateOpenAiApiKey(key)
+                    },
+                    onClearOpenAiApiKey = {
+                        viewModel.clearOpenAiApiKey()
+                        if (!uiState.hasApiKey) {
+                            currentScreen = Screen.Setup
+                        }
+                    },
+                    onUpdateGeminiApiKey = { key ->
+                        viewModel.updateGeminiApiKey(key)
+                    },
+                    onClearGeminiApiKey = {
+                        viewModel.clearGeminiApiKey()
+                        if (!uiState.hasApiKey) {
+                            currentScreen = Screen.Setup
+                        }
                     },
                     onUpdateApiKey = { newKey ->
                         viewModel.saveApiKey(newKey)
@@ -81,6 +117,9 @@ fun RexyyMainScreen(
                     },
                     onUpdateModel = { newModel ->
                         viewModel.updateModel(newModel)
+                    },
+                    onUpdateAutoFallbackEnabled = { enabled ->
+                        viewModel.setAutoFallbackEnabled(enabled)
                     },
                     onUpdateVoiceCommandsEnabled = { enabled ->
                         viewModel.setVoiceCommandsEnabled(enabled)

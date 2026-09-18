@@ -7,10 +7,13 @@ import com.rexyy.app.data.local.SecureStorage
 import com.rexyy.app.model.ChatMessage
 import com.rexyy.app.model.MessageSender
 import com.rexyy.app.network.ApiClientFactory
-import com.rexyy.app.network.ApiMessage
-import com.rexyy.app.network.ChatCompletionRequest
 import com.rexyy.app.network.NetworkResult
-import com.rexyy.app.network.OpenAiApi
+import com.rexyy.app.network.provider.AiModelRegistry
+import com.rexyy.app.network.provider.AiProvider
+import com.rexyy.app.network.provider.AiProviderConfig
+import com.rexyy.app.network.provider.AiProviderType
+import com.rexyy.app.network.provider.GeminiProvider
+import com.rexyy.app.network.provider.OpenAiProvider
 import com.rexyy.app.utils.NetworkUtils
 import com.rexyy.app.utils.SecurityUtils
 import kotlinx.coroutines.Dispatchers
@@ -21,16 +24,21 @@ import kotlinx.coroutines.withContext
 
 class AssistantRepository(
     private val context: Context,
-    private val secureStorage: SecureStorage = SecureStorage(context),
-    private val database: AppDatabase = AppDatabase.getInstance(context)
+    val secureStorage: SecureStorage = SecureStorage(context),
+    private val database: AppDatabase = AppDatabase.getInstance(context),
+    private var openAiProvider: AiProvider = OpenAiProvider(
+        ApiClientFactory.createOpenAiApi(secureStorage.getBaseUrl())
+    ),
+    private var geminiProvider: AiProvider = GeminiProvider(
+        ApiClientFactory.createGeminiApi()
+    )
 ) {
     private val chatDao = database.chatMessageDao()
 
-    @Volatile
-    private var openAiApi: OpenAiApi = ApiClientFactory.createOpenAiApi(secureStorage.getBaseUrl())
-
     fun refreshApiBaseUrl() {
-        openAiApi = ApiClientFactory.createOpenAiApi(secureStorage.getBaseUrl())
+        openAiProvider = OpenAiProvider(
+            ApiClientFactory.createOpenAiApi(secureStorage.getBaseUrl())
+        )
     }
 
     fun getConversationHistory(): Flow<List<ChatMessage>> {
@@ -43,33 +51,61 @@ class AssistantRepository(
         chatDao.clearAllMessages()
     }
 
+    // --- Provider & Model Access ---
+
+    fun getSelectedProvider(): AiProviderType = secureStorage.getSelectedProvider()
+    fun setSelectedProvider(provider: AiProviderType) = secureStorage.setSelectedProvider(provider)
+
+    fun getOpenAiModel(): String = secureStorage.getOpenAiModel()
+    fun saveOpenAiModel(model: String) = secureStorage.setOpenAiModel(model)
+
+    fun getGeminiModel(): String = secureStorage.getGeminiModel()
+    fun saveGeminiModel(model: String) = secureStorage.setGeminiModel(model)
+
+    fun getSelectedModel(): String = secureStorage.getSelectedModel()
+    fun saveSelectedModel(model: String) = secureStorage.saveSelectedModel(model)
+
+    fun isAutoFallbackEnabled(): Boolean = secureStorage.isAutoFallbackEnabled()
+    fun setAutoFallbackEnabled(enabled: Boolean) = secureStorage.setAutoFallbackEnabled(enabled)
+
+    // --- Key Management ---
+
     fun hasApiKey(): Boolean = secureStorage.hasApiKey()
+    fun hasAnyApiKey(): Boolean = secureStorage.hasAnyApiKey()
 
     fun getMaskedApiKey(): String {
         val rawKey = secureStorage.getApiKey()
         return SecurityUtils.maskApiKey(rawKey)
     }
 
-    fun saveApiKey(apiKey: String) {
-        secureStorage.saveApiKey(apiKey)
+    fun saveApiKey(apiKey: String) = secureStorage.saveApiKey(apiKey)
+    fun clearApiKey() = secureStorage.clearApiKey()
+
+    fun getMaskedOpenAiApiKey(): String {
+        val raw = secureStorage.getOpenAiApiKey()
+        return SecurityUtils.maskApiKey(raw)
     }
 
-    fun clearApiKey() {
-        secureStorage.clearApiKey()
+    fun saveOpenAiApiKey(apiKey: String) = secureStorage.saveOpenAiApiKey(apiKey)
+    fun clearOpenAiApiKey() = secureStorage.clearOpenAiApiKey()
+    fun hasOpenAiApiKey(): Boolean = secureStorage.hasOpenAiApiKey()
+
+    fun getMaskedGeminiApiKey(): String {
+        val raw = secureStorage.getGeminiApiKey()
+        return SecurityUtils.maskApiKey(raw)
     }
 
-    fun getSelectedModel(): String = secureStorage.getSelectedModel()
-
-    fun saveSelectedModel(model: String) {
-        secureStorage.saveSelectedModel(model)
-    }
+    fun saveGeminiApiKey(apiKey: String) = secureStorage.saveGeminiApiKey(apiKey)
+    fun clearGeminiApiKey() = secureStorage.clearGeminiApiKey()
+    fun hasGeminiApiKey(): Boolean = secureStorage.hasGeminiApiKey()
 
     fun getBaseUrl(): String = secureStorage.getBaseUrl()
-
     fun saveBaseUrl(url: String) {
         secureStorage.saveBaseUrl(url)
         refreshApiBaseUrl()
     }
+
+    // --- Voice Preferences ---
 
     fun isVoiceCommandsEnabled(): Boolean = secureStorage.isVoiceCommandsEnabled()
     fun setVoiceCommandsEnabled(enabled: Boolean) = secureStorage.setVoiceCommandsEnabled(enabled)
@@ -81,11 +117,13 @@ class AssistantRepository(
     fun setVoiceLanguage(language: String) = secureStorage.setVoiceLanguage(language)
 
     /**
-     * Records a local voice command interaction directly into local Room database history:
-     * 1. Inserts the user's spoken command.
-     * 2. Inserts REXYY's confirmation or action reply.
+     * Records local device actions / voice feedback into Room history.
      */
-    suspend fun recordCommandInteraction(userText: String, replyText: String, isError: Boolean = false): ChatMessage = withContext(Dispatchers.IO) {
+    suspend fun recordCommandInteraction(
+        userText: String,
+        replyText: String,
+        isError: Boolean = false
+    ): ChatMessage = withContext(Dispatchers.IO) {
         val userEntity = ChatMessageEntity(
             content = userText.trim(),
             sender = MessageSender.USER.name,
@@ -103,22 +141,39 @@ class AssistantRepository(
         assistantEntity.copy(id = id).toDomain()
     }
 
-    /**
-     * Sends a user message to the AI Assistant:
-     * 1. Saves user message in local Room DB.
-     * 2. Checks network availability.
-     * 3. Calls AI completions endpoint with conversation context.
-     * 4. Saves AI response in local Room DB.
-     * 5. Returns NetworkResult.
-     */
-    suspend fun sendMessage(userText: String): NetworkResult<ChatMessage> = withContext(Dispatchers.IO) {
-        val apiKey = secureStorage.getApiKey()
-        if (apiKey.isNullOrBlank()) {
-            return@withContext NetworkResult.Error(
-                userFriendlyMessage = "No API key configured. Please add your key in Settings or the setup screen.",
-                errorType = NetworkResult.ErrorType.INVALID_API_KEY
+    private fun getProvider(type: AiProviderType): AiProvider {
+        return when (type) {
+            AiProviderType.OPENAI -> openAiProvider
+            AiProviderType.GEMINI -> geminiProvider
+        }
+    }
+
+    private fun getProviderConfig(type: AiProviderType): AiProviderConfig {
+        return when (type) {
+            AiProviderType.OPENAI -> AiProviderConfig(
+                providerType = AiProviderType.OPENAI,
+                apiKey = secureStorage.getOpenAiApiKey() ?: "",
+                model = secureStorage.getOpenAiModel()
+            )
+            AiProviderType.GEMINI -> AiProviderConfig(
+                providerType = AiProviderType.GEMINI,
+                apiKey = secureStorage.getGeminiApiKey() ?: "",
+                model = secureStorage.getGeminiModel()
             )
         }
+    }
+
+    /**
+     * Sends a user prompt to the selected AI Provider with automatic fallback support.
+     * @param userText The user's input.
+     * @param forcedProvider Optional override (e.g., from voice command "Ask Gemini...").
+     */
+    suspend fun sendMessage(
+        userText: String,
+        forcedProvider: AiProviderType? = null
+    ): NetworkResult<ChatMessage> = withContext(Dispatchers.IO) {
+        val primaryType = forcedProvider ?: secureStorage.getSelectedProvider()
+        val primaryConfig = getProviderConfig(primaryType)
 
         // 1. Insert user message locally
         val userEntity = ChatMessageEntity(
@@ -128,9 +183,25 @@ class AssistantRepository(
         )
         chatDao.insertMessage(userEntity)
 
-        // 2. Check network connectivity
+        // 2. Validate primary API key
+        if (primaryConfig.apiKey.isBlank()) {
+            val missingKeyMsg = "${primaryType.displayName} API key is missing. Please configure it in Settings."
+            val errorEntity = ChatMessageEntity(
+                content = missingKeyMsg,
+                sender = MessageSender.ASSISTANT.name,
+                timestamp = System.currentTimeMillis(),
+                isError = true
+            )
+            chatDao.insertMessage(errorEntity)
+            return@withContext NetworkResult.Error(
+                userFriendlyMessage = missingKeyMsg,
+                errorType = NetworkResult.ErrorType.INVALID_API_KEY
+            )
+        }
+
+        // 3. Check network connectivity
         if (!NetworkUtils.isNetworkAvailable(context)) {
-            val errorMsg = "No internet connection detected. Please connect to Wi-Fi or mobile data and try again."
+            val errorMsg = "No internet connection detected. Please check your network and try again."
             val errorEntity = ChatMessageEntity(
                 content = errorMsg,
                 sender = MessageSender.ASSISTANT.name,
@@ -144,103 +215,65 @@ class AssistantRepository(
             )
         }
 
-        // 3. Build context from recent messages
-        val existingHistory = chatDao.getAllMessages().first()
-        val contextMessages = mutableListOf<ApiMessage>()
-        
-        // System prompt establishing REXYY persona
-        contextMessages.add(
-            ApiMessage(
-                role = "system",
-                content = "You are REXYY, an intelligent, helpful, and concise native Android AI assistant. " +
-                        "Provide clear, accurate, and beautifully structured responses."
-            )
+        // 4. Retrieve conversation history
+        val existingHistory = chatDao.getAllMessages().first().map { it.toDomain() }
+
+        // 5. Attempt request with primary provider
+        val primaryProviderImpl = getProvider(primaryType)
+        val primaryResult = primaryProviderImpl.generateReply(
+            prompt = userText,
+            conversationHistory = existingHistory,
+            config = primaryConfig
         )
 
-        // Take last 10 messages for conversational context
-        val recentHistory = existingHistory.takeLast(10)
-        for (item in recentHistory) {
-            val role = when (item.sender) {
-                MessageSender.USER.name -> "user"
-                MessageSender.ASSISTANT.name -> "assistant"
-                else -> "system"
+        when (primaryResult) {
+            is NetworkResult.Success -> {
+                val assistantEntity = ChatMessageEntity(
+                    content = primaryResult.data,
+                    sender = MessageSender.ASSISTANT.name,
+                    timestamp = System.currentTimeMillis(),
+                    isError = false
+                )
+                val insertedId = chatDao.insertMessage(assistantEntity)
+                NetworkResult.Success(assistantEntity.copy(id = insertedId).toDomain())
             }
-            if (!item.isError && item.content.isNotBlank()) {
-                contextMessages.add(ApiMessage(role = role, content = item.content))
-            }
-        }
+            is NetworkResult.Error -> {
+                // Check if automatic fallback is enabled and secondary provider is available
+                val canFallback = secureStorage.isAutoFallbackEnabled() && forcedProvider == null
+                val secondaryType = if (primaryType == AiProviderType.OPENAI) AiProviderType.GEMINI else AiProviderType.OPENAI
+                val secondaryConfig = getProviderConfig(secondaryType)
 
-        val request = ChatCompletionRequest(
-            model = secureStorage.getSelectedModel(),
-            messages = contextMessages
-        )
-
-        val formattedAuthHeader = if (apiKey.startsWith("Bearer ", ignoreCase = true)) {
-            apiKey
-        } else {
-            "Bearer $apiKey"
-        }
-
-        try {
-            val response = openAiApi.createChatCompletion(
-                authorization = formattedAuthHeader,
-                request = request
-            )
-
-            if (response.isSuccessful) {
-                val body = response.body()
-                val replyContent = body?.choices?.firstOrNull()?.message?.content?.trim()
-
-                if (!replyContent.isNullOrBlank()) {
-                    val assistantEntity = ChatMessageEntity(
-                        content = replyContent,
-                        sender = MessageSender.ASSISTANT.name,
-                        timestamp = System.currentTimeMillis(),
-                        isError = false
+                if (canFallback && secondaryConfig.apiKey.isNotBlank()) {
+                    val secondaryProviderImpl = getProvider(secondaryType)
+                    val fallbackResult = secondaryProviderImpl.generateReply(
+                        prompt = userText,
+                        conversationHistory = existingHistory,
+                        config = secondaryConfig
                     )
-                    val insertedId = chatDao.insertMessage(assistantEntity)
-                    val domainResult = assistantEntity.copy(id = insertedId).toDomain()
-                    NetworkResult.Success(domainResult)
-                } else {
-                    val errorMsg = "The AI model returned an empty response. Please try rephrasing your request."
-                    val errorEntity = ChatMessageEntity(
-                        content = errorMsg,
-                        sender = MessageSender.ASSISTANT.name,
-                        timestamp = System.currentTimeMillis(),
-                        isError = true
-                    )
-                    chatDao.insertMessage(errorEntity)
-                    NetworkResult.Error(
-                        userFriendlyMessage = errorMsg,
-                        errorType = NetworkResult.ErrorType.MALFORMED_RESPONSE
-                    )
+
+                    if (fallbackResult is NetworkResult.Success) {
+                        val replyWithNotice = "[Fallback to ${secondaryType.displayName}]\n\n${fallbackResult.data}"
+                        val assistantEntity = ChatMessageEntity(
+                            content = replyWithNotice,
+                            sender = MessageSender.ASSISTANT.name,
+                            timestamp = System.currentTimeMillis(),
+                            isError = false
+                        )
+                        val insertedId = chatDao.insertMessage(assistantEntity)
+                        return@withContext NetworkResult.Success(assistantEntity.copy(id = insertedId).toDomain())
+                    }
                 }
-            } else {
-                val errorBodyStr = try {
-                    response.errorBody()?.string()
-                } catch (_: Exception) {
-                    null
-                }
-                val errorResult = ApiClientFactory.mapHttpError(response.code(), errorBodyStr)
+
+                // If fallback was not enabled, unavailable, or failed as well, persist original primary error
                 val errorEntity = ChatMessageEntity(
-                    content = errorResult.userFriendlyMessage,
+                    content = primaryResult.userFriendlyMessage,
                     sender = MessageSender.ASSISTANT.name,
                     timestamp = System.currentTimeMillis(),
                     isError = true
                 )
                 chatDao.insertMessage(errorEntity)
-                errorResult
+                primaryResult
             }
-        } catch (e: Exception) {
-            val mappedError = ApiClientFactory.mapExceptionToError(e)
-            val errorEntity = ChatMessageEntity(
-                content = mappedError.userFriendlyMessage,
-                sender = MessageSender.ASSISTANT.name,
-                timestamp = System.currentTimeMillis(),
-                isError = true
-            )
-            chatDao.insertMessage(errorEntity)
-            mappedError
         }
     }
 }

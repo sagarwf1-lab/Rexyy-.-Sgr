@@ -40,8 +40,15 @@ fun RexyyTopBar(
     currentModel: String,
     onClearChatClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectedProvider: com.rexyy.app.network.provider.AiProviderType? = null
 ) {
+    val subtitle = if (selectedProvider != null) {
+        "${selectedProvider.displayName} • $currentModel"
+    } else {
+        currentModel
+    }
+
     TopAppBar(
         title = {
             Row(
@@ -64,7 +71,7 @@ fun RexyyTopBar(
                         )
                     )
                     Text(
-                        text = currentModel,
+                        text = subtitle,
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = RexyyTextMuted
                         )

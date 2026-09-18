@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.rexyy.app.network.NetworkResult
+import com.rexyy.app.network.provider.AiProviderType
 import com.rexyy.app.repository.AssistantRepository
 import com.rexyy.app.voice.VoiceCommand
 import com.rexyy.app.voice.VoiceCommandExecutor
@@ -73,7 +74,13 @@ class ChatViewModel(
         ChatUiState(
             hasApiKey = repository.hasApiKey(),
             maskedApiKey = repository.getMaskedApiKey(),
+            selectedProvider = repository.getSelectedProvider(),
             currentModel = repository.getSelectedModel(),
+            openAiModel = repository.getOpenAiModel(),
+            geminiModel = repository.getGeminiModel(),
+            maskedOpenAiApiKey = repository.getMaskedOpenAiApiKey(),
+            maskedGeminiApiKey = repository.getMaskedGeminiApiKey(),
+            isAutoFallbackEnabled = repository.isAutoFallbackEnabled(),
             isVoiceCommandsEnabled = repository.isVoiceCommandsEnabled(),
             isVoiceRepliesEnabled = repository.isVoiceRepliesEnabled(),
             voiceLanguage = repository.getVoiceLanguage()
@@ -112,9 +119,13 @@ class ChatViewModel(
         executeAiMessage(currentText, isSpokenResponseRequested = false)
     }
 
-    private fun executeAiMessage(promptText: String, isSpokenResponseRequested: Boolean) {
+    private fun executeAiMessage(
+        promptText: String,
+        isSpokenResponseRequested: Boolean,
+        providerOverride: AiProviderType? = null
+    ) {
         viewModelScope.launch {
-            val result = repository.sendMessage(promptText)
+            val result = repository.sendMessage(promptText, providerOverride)
             when (result) {
                 is NetworkResult.Success -> {
                     _uiState.update {
@@ -144,7 +155,7 @@ class ChatViewModel(
 
     /**
      * Entry point for speech recognition results:
-     * Parses the command and either executes an Android action or passes to GPT.
+     * Parses the command and either executes an Android action or passes to selected AI model.
      */
     private fun handleVoiceInput(recognizedText: String) {
         val trimmed = recognizedText.trim()
@@ -168,7 +179,7 @@ class ChatViewModel(
                 is VoiceCommand.AiChat -> {
                     // Standard conversational prompt -> Route through AI chat
                     _uiState.update { it.copy(inputText = "", isLoading = true) }
-                    executeAiMessage(command.prompt, isSpokenResponseRequested = true)
+                    executeAiMessage(command.prompt, isSpokenResponseRequested = true, providerOverride = command.providerOverride)
                 }
                 else -> {
                     // Local device command -> Execute intent and record in chat history
@@ -190,7 +201,7 @@ class ChatViewModel(
                             }
                             is VoiceCommandResult.ForwardToAi -> {
                                 _uiState.update { it.copy(inputText = "", isLoading = true) }
-                                executeAiMessage(result.prompt, isSpokenResponseRequested = true)
+                                executeAiMessage(result.prompt, isSpokenResponseRequested = true, providerOverride = result.providerOverride)
                             }
                             is VoiceCommandResult.RequiresConfirmation -> {
                                 _uiState.update {
@@ -284,12 +295,97 @@ class ChatViewModel(
         }
     }
 
+    // --- Provider and Key Configuration Actions ---
+
+    fun selectProvider(provider: AiProviderType) {
+        repository.setSelectedProvider(provider)
+        _uiState.update {
+            it.copy(
+                selectedProvider = provider,
+                currentModel = repository.getSelectedModel(),
+                hasApiKey = repository.hasApiKey(),
+                maskedApiKey = repository.getMaskedApiKey()
+            )
+        }
+    }
+
+    fun updateOpenAiApiKey(apiKey: String) {
+        repository.saveOpenAiApiKey(apiKey)
+        _uiState.update {
+            it.copy(
+                hasApiKey = repository.hasApiKey(),
+                maskedApiKey = repository.getMaskedApiKey(),
+                maskedOpenAiApiKey = repository.getMaskedOpenAiApiKey()
+            )
+        }
+    }
+
+    fun clearOpenAiApiKey() {
+        repository.clearOpenAiApiKey()
+        _uiState.update {
+            it.copy(
+                hasApiKey = repository.hasApiKey(),
+                maskedApiKey = repository.getMaskedApiKey(),
+                maskedOpenAiApiKey = ""
+            )
+        }
+    }
+
+    fun updateGeminiApiKey(apiKey: String) {
+        repository.saveGeminiApiKey(apiKey)
+        _uiState.update {
+            it.copy(
+                hasApiKey = repository.hasApiKey(),
+                maskedApiKey = repository.getMaskedApiKey(),
+                maskedGeminiApiKey = repository.getMaskedGeminiApiKey()
+            )
+        }
+    }
+
+    fun clearGeminiApiKey() {
+        repository.clearGeminiApiKey()
+        _uiState.update {
+            it.copy(
+                hasApiKey = repository.hasApiKey(),
+                maskedApiKey = repository.getMaskedApiKey(),
+                maskedGeminiApiKey = ""
+            )
+        }
+    }
+
+    fun updateOpenAiModel(model: String) {
+        repository.saveOpenAiModel(model)
+        _uiState.update {
+            it.copy(
+                openAiModel = model,
+                currentModel = if (it.selectedProvider == AiProviderType.OPENAI) model else it.currentModel
+            )
+        }
+    }
+
+    fun updateGeminiModel(model: String) {
+        repository.saveGeminiModel(model)
+        _uiState.update {
+            it.copy(
+                geminiModel = model,
+                currentModel = if (it.selectedProvider == AiProviderType.GEMINI) model else it.currentModel
+            )
+        }
+    }
+
+    fun setAutoFallbackEnabled(enabled: Boolean) {
+        repository.setAutoFallbackEnabled(enabled)
+        _uiState.update { it.copy(isAutoFallbackEnabled = enabled) }
+    }
+
     fun saveApiKey(apiKey: String) {
         repository.saveApiKey(apiKey)
         _uiState.update {
             it.copy(
                 hasApiKey = true,
-                maskedApiKey = repository.getMaskedApiKey()
+                maskedApiKey = repository.getMaskedApiKey(),
+                maskedOpenAiApiKey = repository.getMaskedOpenAiApiKey(),
+                maskedGeminiApiKey = repository.getMaskedGeminiApiKey()
             )
         }
     }
@@ -298,8 +394,10 @@ class ChatViewModel(
         repository.clearApiKey()
         _uiState.update {
             it.copy(
-                hasApiKey = false,
-                maskedApiKey = ""
+                hasApiKey = repository.hasApiKey(),
+                maskedApiKey = repository.getMaskedApiKey(),
+                maskedOpenAiApiKey = repository.getMaskedOpenAiApiKey(),
+                maskedGeminiApiKey = repository.getMaskedGeminiApiKey()
             )
         }
     }

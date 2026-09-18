@@ -1,7 +1,9 @@
 package com.rexyy.app.ui.setup
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -52,6 +55,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.rexyy.app.network.provider.AiProviderType
 import com.rexyy.app.ui.theme.RexyyCyanPrimary
 import com.rexyy.app.ui.theme.RexyyDarkBackground
 import com.rexyy.app.ui.theme.RexyyDarkBorder
@@ -66,8 +70,10 @@ import com.rexyy.app.utils.SecurityUtils
 @Composable
 fun ApiKeySetupScreen(
     onApiKeySaved: (String) -> Unit,
+    onProviderAndKeySaved: (String, AiProviderType) -> Unit = { key, _ -> onApiKeySaved(key) },
     modifier: Modifier = Modifier
 ) {
+    var selectedProvider by remember { mutableStateOf(AiProviderType.OPENAI) }
     var apiKeyText by remember { mutableStateOf("") }
     var isKeyVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -92,7 +98,7 @@ fun ApiKeySetupScreen(
             // Glowing REXYY Brand Icon
             Box(
                 modifier = Modifier
-                    .size(80.dp)
+                    .size(76.dp)
                     .clip(CircleShape)
                     .background(RexyyDarkSurface)
                     .border(2.dp, RexyyCyanPrimary, CircleShape),
@@ -102,11 +108,11 @@ fun ApiKeySetupScreen(
                     imageVector = Icons.Outlined.Key,
                     contentDescription = "REXYY Security Key",
                     tint = RexyyCyanPrimary,
-                    modifier = Modifier.size(38.dp)
+                    modifier = Modifier.size(36.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             Text(
                 text = "Welcome to REXYY",
@@ -117,57 +123,89 @@ fun ApiKeySetupScreen(
                 )
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Enter your API key to activate your intelligent AI assistant.",
-                style = MaterialTheme.typography.bodyLarge.copy(
+                text = "Choose your AI provider and enter your API key to activate REXYY.",
+                style = MaterialTheme.typography.bodyMedium.copy(
                     color = RexyyTextSecondary,
                     textAlign = TextAlign.Center
                 )
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Provider selection row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                SetupProviderCard(
+                    title = "OpenAI",
+                    subtitle = "GPT-4o & Mini",
+                    isSelected = selectedProvider == AiProviderType.OPENAI,
+                    onClick = {
+                        selectedProvider = AiProviderType.OPENAI
+                        errorMessage = null
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                SetupProviderCard(
+                    title = "Google Gemini",
+                    subtitle = "Gemini 3.5 & 2.5",
+                    isSelected = selectedProvider == AiProviderType.GEMINI,
+                    onClick = {
+                        selectedProvider = AiProviderType.GEMINI
+                        errorMessage = null
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
 
             // Security assurance card
             Card(
                 colors = CardDefaults.cardColors(containerColor = RexyyDarkSurface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, RexyyDarkBorder),
-                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, RexyyDarkBorder),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Security,
                         contentDescription = "Secure Local Storage",
                         tint = RexyyNeonGreen,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Your API key is stored locally on this device using Android KeyStore AES-256 GCM encryption. It is never logged or transmitted elsewhere.",
-                        style = MaterialTheme.typography.bodyMedium.copy(
+                        text = "Encrypted in Android KeyStore (AES-256 GCM) on this device. Keys are never logged or transmitted elsewhere.",
+                        style = MaterialTheme.typography.bodySmall.copy(
                             color = RexyyTextSecondary,
-                            lineHeight = 18.sp
+                            lineHeight = 16.sp
                         )
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             // API Key Input Field
+            val keyPlaceholder = if (selectedProvider == AiProviderType.OPENAI) "sk-..." else "AIzaSy..."
+            val keyLabel = if (selectedProvider == AiProviderType.OPENAI) "OpenAI API Key" else "Google Gemini API Key"
+
             OutlinedTextField(
                 value = apiKeyText,
                 onValueChange = {
                     apiKeyText = it
                     if (errorMessage != null) errorMessage = null
                 },
-                label = { Text("API Key (e.g. sk-...)") },
-                placeholder = { Text("Paste your API key here") },
+                label = { Text(keyLabel) },
+                placeholder = { Text(keyPlaceholder) },
                 singleLine = true,
                 visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 leadingIcon = {
@@ -203,7 +241,7 @@ fun ApiKeySetupScreen(
                 keyboardActions = KeyboardActions(
                     onDone = {
                         if (SecurityUtils.isValidApiKey(apiKeyText)) {
-                            onApiKeySaved(apiKeyText.trim())
+                            onProviderAndKeySaved(apiKeyText.trim(), selectedProvider)
                         } else {
                             errorMessage = "Please enter a valid API key (at least 10 characters)."
                         }
@@ -225,12 +263,12 @@ fun ApiKeySetupScreen(
                     .testTag("api_key_input")
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Button(
                 onClick = {
                     if (SecurityUtils.isValidApiKey(apiKeyText)) {
-                        onApiKeySaved(apiKeyText.trim())
+                        onProviderAndKeySaved(apiKeyText.trim(), selectedProvider)
                     } else {
                         errorMessage = "Please enter a valid API key (at least 10 characters)."
                     }
@@ -242,7 +280,7 @@ fun ApiKeySetupScreen(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    .height(50.dp)
                     .testTag("save_api_key_button")
             ) {
                 Text(
@@ -253,7 +291,43 @@ fun ApiKeySetupScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
+        }
+    }
+}
+
+@Composable
+private fun SetupProviderCard(
+    title: String,
+    subtitle: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) RexyyDarkSurfaceVariant else RexyyDarkSurface
+        ),
+        border = BorderStroke(
+            if (isSelected) 2.dp else 1.dp,
+            if (isSelected) RexyyCyanPrimary else RexyyDarkBorder
+        ),
+        shape = RoundedCornerShape(10.dp),
+        modifier = modifier.clickable { onClick() }
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = if (isSelected) RexyyCyanPrimary else RexyyTextPrimary
+                )
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall.copy(color = RexyyTextMuted)
+            )
         }
     }
 }

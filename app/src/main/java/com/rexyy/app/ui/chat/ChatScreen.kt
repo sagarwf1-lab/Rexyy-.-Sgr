@@ -141,6 +141,7 @@ fun ChatScreen(
         topBar = {
             RexyyTopBar(
                 currentModel = uiState.currentModel,
+                selectedProvider = uiState.selectedProvider,
                 onClearChatClick = { showClearConfirmation = true },
                 onSettingsClick = onSettingsClick
             )

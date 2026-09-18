@@ -168,5 +168,80 @@ class RexyyRobolectricTest {
 
         viewModel.setVoiceLanguage(SecureStorage.VOICE_LANG_HI)
         assertEquals(SecureStorage.VOICE_LANG_HI, viewModel.uiState.value.voiceLanguage)
+
+        // Test Provider Selection and Dual Keys in ViewModel
+        viewModel.selectProvider(com.rexyy.app.network.provider.AiProviderType.GEMINI)
+        assertEquals(com.rexyy.app.network.provider.AiProviderType.GEMINI, viewModel.uiState.value.selectedProvider)
+
+        viewModel.updateGeminiApiKey("AIzaSy-sample-gemini-key-12345")
+        assertTrue(viewModel.uiState.value.hasApiKey)
+        assertTrue(viewModel.uiState.value.maskedGeminiApiKey.contains("2345"))
+
+        viewModel.setAutoFallbackEnabled(false)
+        assertFalse(viewModel.uiState.value.isAutoFallbackEnabled)
+    }
+
+    @Test
+    fun testSecureStorageMultiProviderAndDualKeys() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val storage = SecureStorage(context)
+
+        // Default provider
+        assertEquals(com.rexyy.app.network.provider.AiProviderType.OPENAI, storage.getSelectedProvider())
+
+        // Save & get Gemini key
+        assertFalse(storage.hasGeminiApiKey())
+        storage.saveGeminiApiKey("AIzaSy-test-gemini-key")
+        assertTrue(storage.hasGeminiApiKey())
+        assertEquals("AIzaSy-test-gemini-key", storage.getGeminiApiKey())
+
+        // Save & get OpenAI key
+        storage.saveOpenAiApiKey("sk-test-openai-key")
+        assertTrue(storage.hasOpenAiApiKey())
+        assertEquals("sk-test-openai-key", storage.getOpenAiApiKey())
+
+        // Provider switching
+        storage.setSelectedProvider(com.rexyy.app.network.provider.AiProviderType.GEMINI)
+        assertEquals(com.rexyy.app.network.provider.AiProviderType.GEMINI, storage.getSelectedProvider())
+
+        // Fallback toggle
+        assertTrue(storage.isAutoFallbackEnabled()) // default true
+        storage.setAutoFallbackEnabled(false)
+        assertFalse(storage.isAutoFallbackEnabled())
+
+        // Model selection per provider
+        storage.setGeminiModel("gemini-2.5-flash")
+        assertEquals("gemini-2.5-flash", storage.getGeminiModel())
+        storage.setOpenAiModel("gpt-4o")
+        assertEquals("gpt-4o", storage.getOpenAiModel())
+    }
+
+    @Test
+    fun testAiModelRegistry() {
+        val openAiModels = com.rexyy.app.network.provider.AiModelRegistry.getAvailableModels(com.rexyy.app.network.provider.AiProviderType.OPENAI)
+        assertTrue(openAiModels.contains("gpt-4o-mini"))
+        assertTrue(openAiModels.contains("gpt-4o"))
+
+        val geminiModels = com.rexyy.app.network.provider.AiModelRegistry.getAvailableModels(com.rexyy.app.network.provider.AiProviderType.GEMINI)
+        assertTrue(geminiModels.contains("gemini-3.5-flash"))
+        assertTrue(geminiModels.contains("gemini-2.5-flash"))
+
+        assertEquals("gpt-4o-mini", com.rexyy.app.network.provider.AiModelRegistry.getDefaultModel(com.rexyy.app.network.provider.AiProviderType.OPENAI))
+        assertEquals("gemini-3.5-flash", com.rexyy.app.network.provider.AiModelRegistry.getDefaultModel(com.rexyy.app.network.provider.AiProviderType.GEMINI))
+    }
+
+    @Test
+    fun testVoiceCommandProviderOverrideDetection() {
+        val geminiCmd = VoiceCommandParser.parse("Ask Gemini what is quantum computing")
+        assertTrue(geminiCmd is VoiceCommand.AiChat)
+        val geminiChat = geminiCmd as VoiceCommand.AiChat
+        assertEquals(com.rexyy.app.network.provider.AiProviderType.GEMINI, geminiChat.providerOverride)
+        assertTrue(geminiChat.prompt.contains("quantum computing"))
+
+        val openAiCmd = VoiceCommandParser.parse("Ask OpenAI how to write a poem")
+        assertTrue(openAiCmd is VoiceCommand.AiChat)
+        val openAiChat = openAiCmd as VoiceCommand.AiChat
+        assertEquals(com.rexyy.app.network.provider.AiProviderType.OPENAI, openAiChat.providerOverride)
+        assertTrue(openAiChat.prompt.contains("poem"))
     }
 }

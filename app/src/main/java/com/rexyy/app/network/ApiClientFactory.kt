@@ -20,8 +20,9 @@ object ApiClientFactory {
     private fun createOkHttpClient(): OkHttpClient {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
-            // Redact Authorization header to ensure no API keys are ever leaked to Logcat
+            // Redact Authorization and Gemini key headers to ensure no API keys are ever leaked to Logcat
             redactHeader("Authorization")
+            redactHeader("x-goog-api-key")
         }
 
         return OkHttpClient.Builder()
@@ -42,6 +43,17 @@ object ApiClientFactory {
             .build()
 
         return retrofit.create(OpenAiApi::class.java)
+    }
+
+    fun createGeminiApi(baseUrl: String = "https://generativelanguage.googleapis.com/"): com.rexyy.app.network.gemini.GeminiApi {
+        val normalizedUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
+        val retrofit = Retrofit.Builder()
+            .baseUrl(normalizedUrl)
+            .client(createOkHttpClient())
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+
+        return retrofit.create(com.rexyy.app.network.gemini.GeminiApi::class.java)
     }
 
     /**

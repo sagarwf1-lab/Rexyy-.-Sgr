@@ -3,6 +3,7 @@ package com.rexyy.app.ui.settings
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,19 +16,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.AutoMode
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Save
-import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -45,6 +49,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -56,6 +62,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +70,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.rexyy.app.data.local.SecureStorage
+import com.rexyy.app.network.provider.AiModelRegistry
+import com.rexyy.app.network.provider.AiProviderType
+import com.rexyy.app.ui.theme.RexyyAmberWarning
 import com.rexyy.app.ui.theme.RexyyCyanPrimary
 import com.rexyy.app.ui.theme.RexyyDarkBackground
 import com.rexyy.app.ui.theme.RexyyDarkBorder
@@ -72,12 +83,6 @@ import com.rexyy.app.ui.theme.RexyyErrorRed
 import com.rexyy.app.ui.theme.RexyyNeonGreen
 import com.rexyy.app.ui.theme.RexyyTextMuted
 import com.rexyy.app.ui.theme.RexyyTextPrimary
-import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.RecordVoiceOver
-import androidx.compose.material.icons.outlined.Translate
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import com.rexyy.app.data.local.SecureStorage
 import com.rexyy.app.ui.theme.RexyyTextSecondary
 import com.rexyy.app.utils.SecurityUtils
 
@@ -86,13 +91,25 @@ import com.rexyy.app.utils.SecurityUtils
 fun SettingsScreen(
     currentMaskedKey: String,
     currentModel: String,
+    selectedProvider: AiProviderType = AiProviderType.OPENAI,
+    currentMaskedOpenAiKey: String = "",
+    currentMaskedGeminiKey: String = "",
+    openAiModel: String = "gpt-4o-mini",
+    geminiModel: String = "gemini-3.5-flash",
+    isAutoFallbackEnabled: Boolean = true,
     isVoiceCommandsEnabled: Boolean = true,
     isVoiceRepliesEnabled: Boolean = true,
     voiceLanguage: String = SecureStorage.VOICE_LANG_DEFAULT,
     onBackClick: () -> Unit,
+    onSelectProvider: (AiProviderType) -> Unit = {},
+    onUpdateOpenAiApiKey: (String) -> Unit = {},
+    onClearOpenAiApiKey: () -> Unit = {},
+    onUpdateGeminiApiKey: (String) -> Unit = {},
+    onClearGeminiApiKey: () -> Unit = {},
     onUpdateApiKey: (String) -> Unit,
     onClearApiKey: () -> Unit,
     onUpdateModel: (String) -> Unit,
+    onUpdateAutoFallbackEnabled: (Boolean) -> Unit = {},
     onUpdateVoiceCommandsEnabled: (Boolean) -> Unit = {},
     onUpdateVoiceRepliesEnabled: (Boolean) -> Unit = {},
     onUpdateVoiceLanguage: (String) -> Unit = {},
@@ -100,19 +117,35 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var newApiKey by remember { mutableStateOf("") }
-    var isNewKeyVisible by remember { mutableStateOf(false) }
-    var showClearKeyDialog by remember { mutableStateOf(false) }
-    var showClearHistoryDialog by remember { mutableStateOf(false) }
 
-    val availableModels = listOf("gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo")
+    var activeProvider by remember(selectedProvider) { mutableStateOf(selectedProvider) }
+
+    // OpenAI Key State
+    var newOpenAiKey by remember { mutableStateOf("") }
+    var isOpenAiKeyVisible by remember { mutableStateOf(false) }
+    var showClearOpenAiDialog by remember { mutableStateOf(false) }
+
+    // Gemini Key State
+    var newGeminiKey by remember { mutableStateOf("") }
+    var isGeminiKeyVisible by remember { mutableStateOf(false) }
+    var showClearGeminiDialog by remember { mutableStateOf(false) }
+
+    // Model Dropdown
     var isModelDropdownExpanded by remember { mutableStateOf(false) }
-    var selectedModel by remember { mutableStateOf(currentModel) }
+    var chosenModel by remember(currentModel, activeProvider) {
+        mutableStateOf(if (activeProvider == AiProviderType.OPENAI) openAiModel else geminiModel)
+    }
 
-    var voiceCommandsOn by remember { mutableStateOf(isVoiceCommandsEnabled) }
-    var voiceRepliesOn by remember { mutableStateOf(isVoiceRepliesEnabled) }
-    var selectedLanguage by remember { mutableStateOf(voiceLanguage) }
+    // Fallback Switch
+    var autoFallbackOn by remember(isAutoFallbackEnabled) { mutableStateOf(isAutoFallbackEnabled) }
+
+    // Voice Switches
+    var voiceCommandsOn by remember(isVoiceCommandsEnabled) { mutableStateOf(isVoiceCommandsEnabled) }
+    var voiceRepliesOn by remember(isVoiceRepliesEnabled) { mutableStateOf(isVoiceRepliesEnabled) }
+    var selectedLanguage by remember(voiceLanguage) { mutableStateOf(voiceLanguage) }
     var isLanguageDropdownExpanded by remember { mutableStateOf(false) }
+
+    var showClearHistoryDialog by remember { mutableStateOf(false) }
 
     val languageOptions = listOf(
         SecureStorage.VOICE_LANG_DEFAULT to "System Default",
@@ -164,24 +197,28 @@ fun SettingsScreen(
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Current Key Status Card
+            // ==========================================
+            // 1. AI PROVIDER SELECTION
+            // ==========================================
             Card(
                 colors = CardDefaults.cardColors(containerColor = RexyyDarkSurface),
                 border = BorderStroke(1.dp, RexyyDarkBorder),
                 shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("ai_provider_card")
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Outlined.Key,
-                            contentDescription = "Key Icon",
+                            imageVector = Icons.Outlined.SmartToy,
+                            contentDescription = "AI Provider",
                             tint = RexyyCyanPrimary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Stored API Key",
+                            text = "AI Provider",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.SemiBold,
                                 color = RexyyTextPrimary
@@ -189,141 +226,168 @@ fun SettingsScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = if (currentMaskedKey.isNotBlank()) currentMaskedKey else "No API key configured",
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            color = if (currentMaskedKey.isNotBlank()) RexyyNeonGreen else RexyyTextMuted,
-                            fontWeight = FontWeight.Medium
-                        )
+                        text = "Select your primary AI model engine for REXYY conversations.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = RexyyTextSecondary)
                     )
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // OpenAI Provider Option
+                        ProviderOptionCard(
+                            title = "OpenAI",
+                            subtitle = "GPT-4o & GPT-4o Mini",
+                            isSelected = activeProvider == AiProviderType.OPENAI,
+                            isConfigured = currentMaskedOpenAiKey.isNotBlank() || (currentMaskedKey.isNotBlank() && selectedProvider == AiProviderType.OPENAI),
+                            onClick = {
+                                activeProvider = AiProviderType.OPENAI
+                                onSelectProvider(AiProviderType.OPENAI)
+                                chosenModel = openAiModel
+                                onUpdateModel(openAiModel)
+                                Toast.makeText(context, "Provider set to OpenAI", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("provider_openai_option")
+                        )
+
+                        // Google Gemini Provider Option
+                        ProviderOptionCard(
+                            title = "Google Gemini",
+                            subtitle = "Gemini 3.5 & 2.5 Flash",
+                            isSelected = activeProvider == AiProviderType.GEMINI,
+                            isConfigured = currentMaskedGeminiKey.isNotBlank(),
+                            onClick = {
+                                activeProvider = AiProviderType.GEMINI
+                                onSelectProvider(AiProviderType.GEMINI)
+                                chosenModel = geminiModel
+                                onUpdateModel(geminiModel)
+                                Toast.makeText(context, "Provider set to Google Gemini", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("provider_gemini_option")
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ==========================================
+            // 2. API KEYS CONFIGURATION (Both Providers)
+            // ==========================================
+            Card(
+                colors = CardDefaults.cardColors(containerColor = RexyyDarkSurface),
+                border = BorderStroke(1.dp, RexyyDarkBorder),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("api_keys_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Outlined.Key,
+                            contentDescription = "API Keys",
+                            tint = RexyyCyanPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "API Keys",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = RexyyTextPrimary
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Encrypted in Android KeyStore (AES-256 GCM). Complete key is never shown or logged.",
+                        text = "Encrypted on-device via Android KeyStore (AES-256 GCM). Keys are never logged or transmitted elsewhere.",
                         style = MaterialTheme.typography.labelSmall.copy(color = RexyyTextMuted)
                     )
 
-                    if (currentMaskedKey.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(14.dp))
-                        OutlinedButton(
-                            onClick = { showClearKeyDialog = true },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = RexyyErrorRed
-                            ),
-                            border = BorderStroke(1.dp, RexyyErrorRed.copy(alpha = 0.5f)),
-                            modifier = Modifier.testTag("delete_api_key_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.DeleteForever,
-                                contentDescription = "Clear Key",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Remove Stored Key")
-                        }
-                    }
-                }
-            }
+                    Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(20.dp))
+                    // --- OpenAI Key Section ---
+                    val openAiMaskedDisplay = if (currentMaskedOpenAiKey.isNotBlank()) {
+                        currentMaskedOpenAiKey
+                    } else if (selectedProvider == AiProviderType.OPENAI && currentMaskedKey.isNotBlank()) {
+                        currentMaskedKey
+                    } else ""
 
-            // Replace / Update Key Section
-            Card(
-                colors = CardDefaults.cardColors(containerColor = RexyyDarkSurface),
-                border = BorderStroke(1.dp, RexyyDarkBorder),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Update API Key",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = RexyyTextPrimary
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = newApiKey,
-                        onValueChange = { newApiKey = it },
-                        placeholder = { Text("Paste new API key here") },
-                        label = { Text("New Key") },
-                        singleLine = true,
-                        visualTransformation = if (isNewKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Lock,
-                                contentDescription = null,
-                                tint = RexyyCyanPrimary
-                            )
-                        },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = { isNewKeyVisible = !isNewKeyVisible },
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isNewKeyVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                                    contentDescription = if (isNewKeyVisible) "Hide key" else "Show key",
-                                    tint = RexyyTextMuted
-                                )
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = RexyyDarkSurfaceVariant,
-                            unfocusedContainerColor = RexyyDarkSurfaceVariant,
-                            focusedBorderColor = RexyyCyanPrimary,
-                            unfocusedBorderColor = RexyyDarkBorder,
-                            focusedTextColor = RexyyTextPrimary,
-                            unfocusedTextColor = RexyyTextPrimary
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("update_api_key_input")
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Button(
-                        onClick = {
-                            if (SecurityUtils.isValidApiKey(newApiKey)) {
-                                onUpdateApiKey(newApiKey.trim())
-                                newApiKey = ""
-                                Toast.makeText(context, "API Key updated successfully", Toast.LENGTH_SHORT).show()
+                    KeyRowComponent(
+                        providerName = "OpenAI API Key",
+                        maskedKey = openAiMaskedDisplay,
+                        inputValue = newOpenAiKey,
+                        isKeyVisible = isOpenAiKeyVisible,
+                        placeholder = "sk-...",
+                        onInputValueChange = { newOpenAiKey = it },
+                        onToggleVisibility = { isOpenAiKeyVisible = !isOpenAiKeyVisible },
+                        onSaveKey = {
+                            if (SecurityUtils.isValidApiKey(newOpenAiKey)) {
+                                onUpdateOpenAiApiKey(newOpenAiKey.trim())
+                                onUpdateApiKey(newOpenAiKey.trim())
+                                newOpenAiKey = ""
+                                Toast.makeText(context, "OpenAI API Key saved", Toast.LENGTH_SHORT).show()
                             } else {
-                                Toast.makeText(context, "Invalid key: must be at least 10 characters", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Invalid key: at least 10 characters", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        enabled = newApiKey.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = RexyyCyanPrimary,
-                            contentColor = RexyyDarkBackground
-                        ),
-                        modifier = Modifier.testTag("save_new_key_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Save,
-                            contentDescription = "Save Key",
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Save Key")
-                    }
+                        onClearKey = { showClearOpenAiDialog = true },
+                        inputTestTag = "openai_key_input",
+                        saveTestTag = "save_openai_key_button",
+                        deleteTestTag = "delete_openai_key_button"
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // --- Gemini Key Section ---
+                    KeyRowComponent(
+                        providerName = "Google Gemini API Key",
+                        maskedKey = currentMaskedGeminiKey,
+                        inputValue = newGeminiKey,
+                        isKeyVisible = isGeminiKeyVisible,
+                        placeholder = "AIzaSy...",
+                        onInputValueChange = { newGeminiKey = it },
+                        onToggleVisibility = { isGeminiKeyVisible = !isGeminiKeyVisible },
+                        onSaveKey = {
+                            if (SecurityUtils.isValidApiKey(newGeminiKey)) {
+                                onUpdateGeminiApiKey(newGeminiKey.trim())
+                                newGeminiKey = ""
+                                Toast.makeText(context, "Gemini API Key saved", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Invalid key: at least 10 characters", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onClearKey = { showClearGeminiDialog = true },
+                        inputTestTag = "gemini_key_input",
+                        saveTestTag = "save_gemini_key_button",
+                        deleteTestTag = "delete_gemini_key_button"
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // AI Model Selection Card
+            // ==========================================
+            // 3. AI MODEL SELECTION (Dynamic per Provider)
+            // ==========================================
             Card(
                 colors = CardDefaults.cardColors(containerColor = RexyyDarkSurface),
                 border = BorderStroke(1.dp, RexyyDarkBorder),
                 shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("ai_model_card")
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -335,7 +399,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "AI Model",
+                            text = "Model (${activeProvider.displayName})",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.SemiBold,
                                 color = RexyyTextPrimary
@@ -343,7 +407,10 @@ fun SettingsScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val availableModels = AiModelRegistry.getAvailableModels(activeProvider)
+                    val activeModelDisplay = if (activeProvider == AiProviderType.OPENAI) openAiModel else geminiModel
 
                     ExposedDropdownMenuBox(
                         expanded = isModelDropdownExpanded,
@@ -351,7 +418,7 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         OutlinedTextField(
-                            value = selectedModel,
+                            value = activeModelDisplay,
                             onValueChange = {},
                             readOnly = true,
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isModelDropdownExpanded) },
@@ -363,9 +430,11 @@ fun SettingsScreen(
                                 focusedTextColor = RexyyTextPrimary,
                                 unfocusedTextColor = RexyyTextPrimary
                             ),
+                            shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .testTag("model_dropdown")
                         )
 
                         ExposedDropdownMenu(
@@ -373,19 +442,20 @@ fun SettingsScreen(
                             onDismissRequest = { isModelDropdownExpanded = false },
                             modifier = Modifier.background(RexyyDarkSurface)
                         ) {
-                            availableModels.forEach { modelName ->
+                            for (modelName in availableModels) {
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             text = modelName,
-                                            color = if (modelName == selectedModel) RexyyCyanPrimary else RexyyTextPrimary
+                                            color = if (modelName == activeModelDisplay) RexyyCyanPrimary else RexyyTextPrimary,
+                                            fontWeight = if (modelName == activeModelDisplay) FontWeight.Bold else FontWeight.Normal
                                         )
                                     },
                                     onClick = {
-                                        selectedModel = modelName
+                                        chosenModel = modelName
                                         onUpdateModel(modelName)
                                         isModelDropdownExpanded = false
-                                        Toast.makeText(context, "Model set to $modelName", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Active model: $modelName", Toast.LENGTH_SHORT).show()
                                     }
                                 )
                             }
@@ -396,7 +466,78 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Voice & Speech Settings Card
+            // ==========================================
+            // 4. AUTOMATIC FALLBACK TOGGLE
+            // ==========================================
+            Card(
+                colors = CardDefaults.cardColors(containerColor = RexyyDarkSurface),
+                border = BorderStroke(1.dp, RexyyDarkBorder),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("fallback_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoMode,
+                                contentDescription = "Fallback",
+                                tint = RexyyCyanPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Automatic Fallback",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = RexyyTextPrimary
+                                    )
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "If primary AI fails or limits are reached, REXYY seamlessly retries with secondary provider.",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = RexyyTextSecondary)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Switch(
+                            checked = autoFallbackOn,
+                            onCheckedChange = { isChecked ->
+                                autoFallbackOn = isChecked
+                                onUpdateAutoFallbackEnabled(isChecked)
+                                Toast.makeText(
+                                    context,
+                                    if (isChecked) "Automatic fallback enabled" else "Automatic fallback disabled",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = RexyyDarkBackground,
+                                checkedTrackColor = RexyyCyanPrimary,
+                                uncheckedThumbColor = RexyyTextMuted,
+                                uncheckedTrackColor = RexyyDarkSurfaceVariant
+                            ),
+                            modifier = Modifier.testTag("fallback_switch")
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ==========================================
+            // 5. VOICE & SPEECH SETTINGS
+            // ==========================================
             Card(
                 colors = CardDefaults.cardColors(containerColor = RexyyDarkSurface),
                 border = BorderStroke(1.dp, RexyyDarkBorder),
@@ -543,6 +684,7 @@ fun SettingsScreen(
                                 focusedTextColor = RexyyTextPrimary,
                                 unfocusedTextColor = RexyyTextPrimary
                             ),
+                            shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
@@ -577,7 +719,9 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Conversation History Cleanup
+            // ==========================================
+            // 6. CONVERSATION HISTORY CLEANUP
+            // ==========================================
             Card(
                 colors = CardDefaults.cardColors(containerColor = RexyyDarkSurface),
                 border = BorderStroke(1.dp, RexyyDarkBorder),
@@ -620,24 +764,51 @@ fun SettingsScreen(
     }
 
     // Dialogs
-    if (showClearKeyDialog) {
+    if (showClearOpenAiDialog) {
         AlertDialog(
-            onDismissRequest = { showClearKeyDialog = false },
-            title = { Text("Remove API Key?") },
-            text = { Text("Are you sure you want to remove your stored API key? You will need to enter it again to interact with REXYY.") },
+            onDismissRequest = { showClearOpenAiDialog = false },
+            title = { Text("Remove OpenAI API Key?") },
+            text = { Text("Are you sure you want to remove your stored OpenAI API key?") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        onClearApiKey()
-                        showClearKeyDialog = false
-                        Toast.makeText(context, "API Key removed", Toast.LENGTH_SHORT).show()
+                        onClearOpenAiApiKey()
+                        showClearOpenAiDialog = false
+                        Toast.makeText(context, "OpenAI API Key removed", Toast.LENGTH_SHORT).show()
                     }
                 ) {
                     Text("Remove", color = RexyyErrorRed)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showClearKeyDialog = false }) {
+                TextButton(onClick = { showClearOpenAiDialog = false }) {
+                    Text("Cancel", color = RexyyTextPrimary)
+                }
+            },
+            containerColor = RexyyDarkSurface,
+            titleContentColor = RexyyTextPrimary,
+            textContentColor = RexyyTextSecondary
+        )
+    }
+
+    if (showClearGeminiDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearGeminiDialog = false },
+            title = { Text("Remove Gemini API Key?") },
+            text = { Text("Are you sure you want to remove your stored Gemini API key?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onClearGeminiApiKey()
+                        showClearGeminiDialog = false
+                        Toast.makeText(context, "Gemini API Key removed", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Remove", color = RexyyErrorRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearGeminiDialog = false }) {
                     Text("Cancel", color = RexyyTextPrimary)
                 }
             },
@@ -672,5 +843,200 @@ fun SettingsScreen(
             titleContentColor = RexyyTextPrimary,
             textContentColor = RexyyTextSecondary
         )
+    }
+}
+
+@Composable
+private fun ProviderOptionCard(
+    title: String,
+    subtitle: String,
+    isSelected: Boolean,
+    isConfigured: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = if (isSelected) RexyyCyanPrimary else RexyyDarkBorder
+    val bgColor = if (isSelected) RexyyDarkSurfaceVariant else RexyyDarkSurface
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = bgColor),
+        border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderColor),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier.clickable { onClick() }
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) RexyyCyanPrimary else RexyyTextPrimary
+                    )
+                )
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (isConfigured) RexyyNeonGreen else RexyyAmberWarning)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall.copy(color = RexyyTextMuted)
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = if (isConfigured) "Key Configured" else "Key Not Set",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    color = if (isConfigured) RexyyNeonGreen else RexyyAmberWarning,
+                    fontWeight = FontWeight.Medium
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun KeyRowComponent(
+    providerName: String,
+    maskedKey: String,
+    inputValue: String,
+    isKeyVisible: Boolean,
+    placeholder: String,
+    onInputValueChange: (String) -> Unit,
+    onToggleVisibility: () -> Unit,
+    onSaveKey: () -> Unit,
+    onClearKey: () -> Unit,
+    inputTestTag: String,
+    saveTestTag: String,
+    deleteTestTag: String
+) {
+    val isConfigured = maskedKey.isNotBlank()
+
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = providerName,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = FontWeight.Medium,
+                    color = RexyyTextPrimary
+                )
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (isConfigured) RexyyNeonGreen else RexyyAmberWarning)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isConfigured) "Configured" else "Not set",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        color = if (isConfigured) RexyyNeonGreen else RexyyAmberWarning,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+            }
+        }
+
+        if (isConfigured) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = maskedKey,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = RexyyNeonGreen,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+                TextButton(
+                    onClick = onClearKey,
+                    modifier = Modifier.testTag(deleteTestTag)
+                ) {
+                    Text("Remove", color = RexyyErrorRed, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        OutlinedTextField(
+            value = inputValue,
+            onValueChange = onInputValueChange,
+            placeholder = { Text(placeholder) },
+            label = { Text(if (isConfigured) "Update Key" else "Enter Key") },
+            singleLine = true,
+            visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Outlined.Lock,
+                    contentDescription = null,
+                    tint = RexyyCyanPrimary
+                )
+            },
+            trailingIcon = {
+                IconButton(
+                    onClick = onToggleVisibility,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isKeyVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                        contentDescription = if (isKeyVisible) "Hide key" else "Show key",
+                        tint = RexyyTextMuted
+                    )
+                }
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = RexyyDarkSurfaceVariant,
+                unfocusedContainerColor = RexyyDarkSurfaceVariant,
+                focusedBorderColor = RexyyCyanPrimary,
+                unfocusedBorderColor = RexyyDarkBorder,
+                focusedTextColor = RexyyTextPrimary,
+                unfocusedTextColor = RexyyTextPrimary
+            ),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(inputTestTag)
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = onSaveKey,
+            enabled = inputValue.isNotBlank(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = RexyyCyanPrimary,
+                contentColor = RexyyDarkBackground
+            ),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.testTag(saveTestTag)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Save,
+                contentDescription = "Save Key",
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Save ${providerName.replace(" API Key", "")} Key")
+        }
     }
 }

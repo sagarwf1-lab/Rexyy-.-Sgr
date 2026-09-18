@@ -24,7 +24,7 @@ object VoiceCommandExecutor {
                 is VoiceCommand.CallContact -> executeCallContact(command.target, context)
                 is VoiceCommand.SendMessage -> executeSendMessage(command.target, command.body, context)
                 is VoiceCommand.SetReminder -> executeSetReminder(command.title, context)
-                is VoiceCommand.AiChat -> VoiceCommandResult.ForwardToAi(command.prompt)
+                is VoiceCommand.AiChat -> VoiceCommandResult.ForwardToAi(command.prompt, command.providerOverride)
             }
         } catch (e: Exception) {
             VoiceCommandResult.Error("Unable to perform command: ${e.localizedMessage ?: "Unknown error"}")

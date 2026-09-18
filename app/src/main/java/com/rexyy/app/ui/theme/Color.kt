@@ -12,6 +12,7 @@ val RexyyCyanPrimary = Color(0xFF00E5FF)
 val RexyyCyanDim = Color(0xFF00B0FF)
 val RexyyPurpleSecondary = Color(0xFFB388FF)
 val RexyyNeonGreen = Color(0xFF00E676)
+val RexyyAmberWarning = Color(0xFFFFB74D)
 val RexyyErrorRed = Color(0xFFFF5252)
 
 val RexyyTextPrimary = Color(0xFFF0F4F8)
