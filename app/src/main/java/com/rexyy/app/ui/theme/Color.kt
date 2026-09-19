@@ -9,6 +9,7 @@ val RexyyDarkSurfaceVariant = Color(0xFF1E222D)
 val RexyyDarkBorder = Color(0xFF2B3142)
 
 val RexyyCyanPrimary = Color(0xFF00E5FF)
+val RexyyCyanLight = Color(0xFF80DEEA)
 val RexyyCyanDim = Color(0xFF00B0FF)
 val RexyyPurpleSecondary = Color(0xFFB388FF)
 val RexyyNeonGreen = Color(0xFF00E676)

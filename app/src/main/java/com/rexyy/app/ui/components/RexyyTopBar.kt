@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,7 +42,8 @@ fun RexyyTopBar(
     onClearChatClick: () -> Unit,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
-    selectedProvider: com.rexyy.app.network.provider.AiProviderType? = null
+    selectedProvider: com.rexyy.app.network.provider.AiProviderType? = null,
+    onNavigateBack: (() -> Unit)? = null
 ) {
     val subtitle = if (selectedProvider != null) {
         "${selectedProvider.displayName} • $currentModel"
@@ -50,6 +52,20 @@ fun RexyyTopBar(
     }
 
     TopAppBar(
+        navigationIcon = {
+            if (onNavigateBack != null) {
+                IconButton(
+                    onClick = onNavigateBack,
+                    modifier = Modifier.testTag("chat_back_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back to Assistant",
+                        tint = RexyyTextPrimary
+                    )
+                }
+            }
+        },
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

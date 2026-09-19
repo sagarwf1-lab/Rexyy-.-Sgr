@@ -24,6 +24,7 @@ object AiModelRegistry {
         return when (provider) {
             AiProviderType.OPENAI -> openAiModels
             AiProviderType.GEMINI -> geminiModels
+            AiProviderType.LOCAL_TEST -> listOf("local-autonomous")
         }
     }
 
@@ -31,6 +32,7 @@ object AiModelRegistry {
         return when (provider) {
             AiProviderType.OPENAI -> DEFAULT_OPENAI_MODEL
             AiProviderType.GEMINI -> DEFAULT_GEMINI_MODEL
+            AiProviderType.LOCAL_TEST -> "local-autonomous"
         }
     }
 

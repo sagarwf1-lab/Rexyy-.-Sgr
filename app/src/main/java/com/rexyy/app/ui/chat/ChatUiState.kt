@@ -23,5 +23,10 @@ data class ChatUiState(
     val isVoiceCommandsEnabled: Boolean = true,
     val isVoiceRepliesEnabled: Boolean = true,
     val voiceLanguage: String = SecureStorage.VOICE_LANG_DEFAULT,
-    val voiceStatusMessage: String? = null
+    val voiceStatusMessage: String? = null,
+    val isSetupCompleted: Boolean = false,
+    val userName: String = SecureStorage.DEFAULT_USER_NAME,
+    val assistantName: String = SecureStorage.DEFAULT_ASSISTANT_NAME,
+    val isListening: Boolean = false,
+    val lastActionFeedback: String? = null
 )

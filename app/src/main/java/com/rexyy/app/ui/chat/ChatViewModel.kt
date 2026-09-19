@@ -83,7 +83,10 @@ class ChatViewModel(
             isAutoFallbackEnabled = repository.isAutoFallbackEnabled(),
             isVoiceCommandsEnabled = repository.isVoiceCommandsEnabled(),
             isVoiceRepliesEnabled = repository.isVoiceRepliesEnabled(),
-            voiceLanguage = repository.getVoiceLanguage()
+            voiceLanguage = repository.getVoiceLanguage(),
+            isSetupCompleted = repository.secureStorage.isSetupCompleted(),
+            userName = repository.secureStorage.getUserName(),
+            assistantName = repository.secureStorage.getAssistantName()
         )
     )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -409,6 +412,33 @@ class ChatViewModel(
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun completeSetup(userName: String, assistantName: String) {
+        repository.secureStorage.setUserName(userName)
+        repository.secureStorage.setAssistantName(assistantName)
+        repository.secureStorage.setSetupCompleted(true)
+        _uiState.update {
+            it.copy(
+                isSetupCompleted = true,
+                userName = repository.secureStorage.getUserName(),
+                assistantName = repository.secureStorage.getAssistantName()
+            )
+        }
+    }
+
+    fun setUserName(name: String) {
+        repository.secureStorage.setUserName(name)
+        _uiState.update { it.copy(userName = repository.secureStorage.getUserName()) }
+    }
+
+    fun setAssistantName(name: String) {
+        repository.secureStorage.setAssistantName(name)
+        _uiState.update { it.copy(assistantName = repository.secureStorage.getAssistantName()) }
+    }
+
+    fun executeLocalAction(commandText: String, isVoice: Boolean = false) {
+        handleVoiceInput(commandText)
     }
 
     override fun onCleared() {

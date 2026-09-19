@@ -40,6 +40,14 @@ class SecureStorage(context: Context) {
         private const val KEY_VOICE_REPLIES_ENABLED = "voice_replies_enabled"
         private const val KEY_VOICE_LANGUAGE = "voice_language"
 
+        private const val KEY_SETUP_COMPLETED = "setup_completed"
+        private const val KEY_USER_NAME = "user_display_name"
+        private const val KEY_ASSISTANT_NAME = "assistant_name"
+        private const val KEY_RESPONSE_STYLE = "response_style"
+        private const val KEY_CUSTOM_INSTRUCTIONS = "custom_instructions"
+
+        const val DEFAULT_USER_NAME = "Commander"
+        const val DEFAULT_ASSISTANT_NAME = "REXYY"
         const val DEFAULT_MODEL = "gpt-4o-mini"
         const val DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
         const val DEFAULT_BASE_URL = "https://api.openai.com/v1/"
@@ -210,6 +218,7 @@ class SecureStorage(context: Context) {
         when (getSelectedProvider()) {
             AiProviderType.OPENAI -> saveOpenAiApiKey(apiKey)
             AiProviderType.GEMINI -> saveGeminiApiKey(apiKey)
+            AiProviderType.LOCAL_TEST -> { /* No API key needed for local test */ }
         }
     }
 
@@ -217,6 +226,7 @@ class SecureStorage(context: Context) {
         return when (getSelectedProvider()) {
             AiProviderType.OPENAI -> getOpenAiApiKey() ?: getGeminiApiKey()
             AiProviderType.GEMINI -> getGeminiApiKey() ?: getOpenAiApiKey()
+            AiProviderType.LOCAL_TEST -> "local_test_active"
         }
     }
 
@@ -225,13 +235,14 @@ class SecureStorage(context: Context) {
     }
 
     fun hasAnyApiKey(): Boolean {
-        return hasOpenAiApiKey() || hasGeminiApiKey()
+        return getSelectedProvider() == AiProviderType.LOCAL_TEST || hasOpenAiApiKey() || hasGeminiApiKey()
     }
 
     fun clearApiKey() {
         when (getSelectedProvider()) {
             AiProviderType.OPENAI -> clearOpenAiApiKey()
             AiProviderType.GEMINI -> clearGeminiApiKey()
+            AiProviderType.LOCAL_TEST -> { /* No-op */ }
         }
     }
 
@@ -257,6 +268,7 @@ class SecureStorage(context: Context) {
         when (getSelectedProvider()) {
             AiProviderType.OPENAI -> setOpenAiModel(model)
             AiProviderType.GEMINI -> setGeminiModel(model)
+            AiProviderType.LOCAL_TEST -> { /* No model selection needed */ }
         }
     }
 
@@ -264,6 +276,7 @@ class SecureStorage(context: Context) {
         return when (getSelectedProvider()) {
             AiProviderType.OPENAI -> getOpenAiModel()
             AiProviderType.GEMINI -> getGeminiModel()
+            AiProviderType.LOCAL_TEST -> "local-autonomous"
         }
     }
 
@@ -308,5 +321,47 @@ class SecureStorage(context: Context) {
 
     fun setVoiceLanguage(language: String) {
         prefs.edit().putString(KEY_VOICE_LANGUAGE, language).apply()
+    }
+
+    // --- Onboarding & Setup Persistence ---
+
+    fun isSetupCompleted(): Boolean {
+        return prefs.getBoolean(KEY_SETUP_COMPLETED, false)
+    }
+
+    fun setSetupCompleted(completed: Boolean) {
+        prefs.edit().putBoolean(KEY_SETUP_COMPLETED, completed).apply()
+    }
+
+    fun getUserName(): String {
+        return prefs.getString(KEY_USER_NAME, DEFAULT_USER_NAME) ?: DEFAULT_USER_NAME
+    }
+
+    fun setUserName(name: String) {
+        prefs.edit().putString(KEY_USER_NAME, name.trim().ifBlank { DEFAULT_USER_NAME }).apply()
+    }
+
+    fun getAssistantName(): String {
+        return prefs.getString(KEY_ASSISTANT_NAME, DEFAULT_ASSISTANT_NAME) ?: DEFAULT_ASSISTANT_NAME
+    }
+
+    fun setAssistantName(name: String) {
+        prefs.edit().putString(KEY_ASSISTANT_NAME, name.trim().ifBlank { DEFAULT_ASSISTANT_NAME }).apply()
+    }
+
+    fun getResponseStyle(): String {
+        return prefs.getString(KEY_RESPONSE_STYLE, "Professional & Concise") ?: "Professional & Concise"
+    }
+
+    fun setResponseStyle(style: String) {
+        prefs.edit().putString(KEY_RESPONSE_STYLE, style).apply()
+    }
+
+    fun getCustomInstructions(): String {
+        return prefs.getString(KEY_CUSTOM_INSTRUCTIONS, "") ?: ""
+    }
+
+    fun setCustomInstructions(instructions: String) {
+        prefs.edit().putString(KEY_CUSTOM_INSTRUCTIONS, instructions.trim()).apply()
     }
 }

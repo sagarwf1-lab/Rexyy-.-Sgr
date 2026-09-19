@@ -235,45 +235,66 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // OpenAI Provider Option
+                        // Local Test Mode Option
                         ProviderOptionCard(
-                            title = "OpenAI",
-                            subtitle = "GPT-4o & GPT-4o Mini",
-                            isSelected = activeProvider == AiProviderType.OPENAI,
-                            isConfigured = currentMaskedOpenAiKey.isNotBlank() || (currentMaskedKey.isNotBlank() && selectedProvider == AiProviderType.OPENAI),
+                            title = "Local Test Mode",
+                            subtitle = "Zero API Key • Offline Intents & Voice Commands",
+                            isSelected = activeProvider == AiProviderType.LOCAL_TEST,
+                            isConfigured = true,
                             onClick = {
-                                activeProvider = AiProviderType.OPENAI
-                                onSelectProvider(AiProviderType.OPENAI)
-                                chosenModel = openAiModel
-                                onUpdateModel(openAiModel)
-                                Toast.makeText(context, "Provider set to OpenAI", Toast.LENGTH_SHORT).show()
+                                activeProvider = AiProviderType.LOCAL_TEST
+                                onSelectProvider(AiProviderType.LOCAL_TEST)
+                                Toast.makeText(context, "Provider set to Local Test Mode", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier
-                                .weight(1f)
-                                .testTag("provider_openai_option")
+                                .fillMaxWidth()
+                                .testTag("provider_local_test_option")
                         )
 
-                        // Google Gemini Provider Option
-                        ProviderOptionCard(
-                            title = "Google Gemini",
-                            subtitle = "Gemini 3.5 & 2.5 Flash",
-                            isSelected = activeProvider == AiProviderType.GEMINI,
-                            isConfigured = currentMaskedGeminiKey.isNotBlank(),
-                            onClick = {
-                                activeProvider = AiProviderType.GEMINI
-                                onSelectProvider(AiProviderType.GEMINI)
-                                chosenModel = geminiModel
-                                onUpdateModel(geminiModel)
-                                Toast.makeText(context, "Provider set to Google Gemini", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("provider_gemini_option")
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // OpenAI Provider Option
+                            ProviderOptionCard(
+                                title = "OpenAI",
+                                subtitle = "GPT-4o & GPT-4o Mini",
+                                isSelected = activeProvider == AiProviderType.OPENAI,
+                                isConfigured = currentMaskedOpenAiKey.isNotBlank() || (currentMaskedKey.isNotBlank() && selectedProvider == AiProviderType.OPENAI),
+                                onClick = {
+                                    activeProvider = AiProviderType.OPENAI
+                                    onSelectProvider(AiProviderType.OPENAI)
+                                    chosenModel = openAiModel
+                                    onUpdateModel(openAiModel)
+                                    Toast.makeText(context, "Provider set to OpenAI", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("provider_openai_option")
+                            )
+
+                            // Google Gemini Provider Option
+                            ProviderOptionCard(
+                                title = "Google Gemini",
+                                subtitle = "Gemini 3.5 & 2.5 Flash",
+                                isSelected = activeProvider == AiProviderType.GEMINI,
+                                isConfigured = currentMaskedGeminiKey.isNotBlank(),
+                                onClick = {
+                                    activeProvider = AiProviderType.GEMINI
+                                    onSelectProvider(AiProviderType.GEMINI)
+                                    chosenModel = geminiModel
+                                    onUpdateModel(geminiModel)
+                                    Toast.makeText(context, "Provider set to Google Gemini", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("provider_gemini_option")
+                            )
+                        }
                     }
                 }
             }

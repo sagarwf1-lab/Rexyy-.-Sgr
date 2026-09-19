@@ -244,4 +244,42 @@ class RexyyRobolectricTest {
         assertEquals(com.rexyy.app.network.provider.AiProviderType.OPENAI, openAiChat.providerOverride)
         assertTrue(openAiChat.prompt.contains("poem"))
     }
+
+    @Test
+    fun testSetupStatePersistenceAndCompletion() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val storage = SecureStorage(context)
+
+        assertFalse(storage.isSetupCompleted())
+        assertEquals("Commander", storage.getUserName())
+        assertEquals("REXYY", storage.getAssistantName())
+
+        storage.setUserName("Alex")
+        storage.setAssistantName("Rexyy Prime")
+        storage.setSetupCompleted(true)
+
+        assertTrue(storage.isSetupCompleted())
+        assertEquals("Alex", storage.getUserName())
+        assertEquals("Rexyy Prime", storage.getAssistantName())
+    }
+
+    @Test
+    fun testLocalTestProviderImmediateResponse() = kotlinx.coroutines.runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = AssistantRepository(context)
+
+        repository.setSelectedProvider(com.rexyy.app.network.provider.AiProviderType.LOCAL_TEST)
+        val result = repository.sendMessage("What can you do?")
+        assertTrue(result is com.rexyy.app.network.NetworkResult.Success)
+        val responseText = (result as com.rexyy.app.network.NetworkResult.Success).data.content
+        assertTrue(responseText.contains("Local Test Mode") || responseText.contains("REXYY"))
+    }
+
+    @Test
+    fun testDeviceCapabilityManagerPermissions() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val hasMic = com.rexyy.app.device.CapabilityManager.hasPermission(context, android.Manifest.permission.RECORD_AUDIO)
+        // Check method execution without exceptions
+        assertNotNull(hasMic)
+    }
 }

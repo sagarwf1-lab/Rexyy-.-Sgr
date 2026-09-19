@@ -13,6 +13,7 @@ import com.rexyy.app.network.provider.AiProvider
 import com.rexyy.app.network.provider.AiProviderConfig
 import com.rexyy.app.network.provider.AiProviderType
 import com.rexyy.app.network.provider.GeminiProvider
+import com.rexyy.app.network.provider.LocalTestProvider
 import com.rexyy.app.network.provider.OpenAiProvider
 import com.rexyy.app.utils.NetworkUtils
 import com.rexyy.app.utils.SecurityUtils
@@ -31,7 +32,8 @@ class AssistantRepository(
     ),
     private var geminiProvider: AiProvider = GeminiProvider(
         ApiClientFactory.createGeminiApi()
-    )
+    ),
+    private val localTestProvider: AiProvider = LocalTestProvider()
 ) {
     private val chatDao = database.chatMessageDao()
 
@@ -143,6 +145,7 @@ class AssistantRepository(
 
     private fun getProvider(type: AiProviderType): AiProvider {
         return when (type) {
+            AiProviderType.LOCAL_TEST -> localTestProvider
             AiProviderType.OPENAI -> openAiProvider
             AiProviderType.GEMINI -> geminiProvider
         }
@@ -150,6 +153,11 @@ class AssistantRepository(
 
     private fun getProviderConfig(type: AiProviderType): AiProviderConfig {
         return when (type) {
+            AiProviderType.LOCAL_TEST -> AiProviderConfig(
+                providerType = AiProviderType.LOCAL_TEST,
+                apiKey = "local_test",
+                model = "local-offline-v1"
+            )
             AiProviderType.OPENAI -> AiProviderConfig(
                 providerType = AiProviderType.OPENAI,
                 apiKey = secureStorage.getOpenAiApiKey() ?: "",
@@ -183,8 +191,8 @@ class AssistantRepository(
         )
         chatDao.insertMessage(userEntity)
 
-        // 2. Validate primary API key
-        if (primaryConfig.apiKey.isBlank()) {
+        // 2. Validate primary API key (skip for LOCAL_TEST)
+        if (primaryType != AiProviderType.LOCAL_TEST && primaryConfig.apiKey.isBlank()) {
             val missingKeyMsg = "${primaryType.displayName} API key is missing. Please configure it in Settings."
             val errorEntity = ChatMessageEntity(
                 content = missingKeyMsg,
@@ -199,8 +207,8 @@ class AssistantRepository(
             )
         }
 
-        // 3. Check network connectivity
-        if (!NetworkUtils.isNetworkAvailable(context)) {
+        // 3. Check network connectivity (skip for LOCAL_TEST)
+        if (primaryType != AiProviderType.LOCAL_TEST && !NetworkUtils.isNetworkAvailable(context)) {
             val errorMsg = "No internet connection detected. Please check your network and try again."
             val errorEntity = ChatMessageEntity(
                 content = errorMsg,

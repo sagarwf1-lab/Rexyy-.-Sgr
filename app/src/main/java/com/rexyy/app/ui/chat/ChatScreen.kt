@@ -94,6 +94,7 @@ fun ChatScreen(
     onCancelVoiceInput: () -> Unit = {},
     onStopSpeaking: () -> Unit = {},
     onMicrophonePermissionDenied: () -> Unit = {},
+    onNavigateBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -143,7 +144,8 @@ fun ChatScreen(
                 currentModel = uiState.currentModel,
                 selectedProvider = uiState.selectedProvider,
                 onClearChatClick = { showClearConfirmation = true },
-                onSettingsClick = onSettingsClick
+                onSettingsClick = onSettingsClick,
+                onNavigateBack = onNavigateBack
             )
         },
         bottomBar = {
