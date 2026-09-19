@@ -10,6 +10,7 @@ import java.net.URLEncoder
 sealed class WhatsAppActionResult {
     data class Success(val message: String) : WhatsAppActionResult()
     data class NotInstalled(val message: String = "WhatsApp is not installed on this device.") : WhatsAppActionResult()
+    data class NeedsMessageBody(val targetName: String, val prompt: String) : WhatsAppActionResult()
     data class RequiresConfirmation(
         val targetName: String,
         val phoneNumber: String?,
@@ -40,17 +41,28 @@ class WhatsAppActionManager(private val context: Context) {
             return WhatsAppActionResult.NotInstalled("WhatsApp is not installed on this device.")
         }
 
-        val resolvedPhone = CallerIdentityResolver.findPhoneNumberByName(context, target)
+        val cleanTarget = target.trim()
+        val cleanMessage = messageText.trim()
+
+        if (cleanMessage.isBlank()) {
+            // NEVER invent a placeholder like "Hello"
+            return WhatsAppActionResult.NeedsMessageBody(
+                targetName = cleanTarget,
+                prompt = "$cleanTarget ko WhatsApp par kya message bhejna hai?"
+            )
+        }
+
+        val resolvedPhone = CallerIdentityResolver.findPhoneNumberByName(context, cleanTarget)
         val prompt = if (!resolvedPhone.isNullOrBlank()) {
-            "$target ($resolvedPhone) ko ye WhatsApp message bheju?\n\"$messageText\""
+            "$cleanTarget ($resolvedPhone) ko WhatsApp par ye message bheju?\n\"$cleanMessage\""
         } else {
-            "$target ko ye WhatsApp message bheju?\n\"$messageText\""
+            "$cleanTarget ko WhatsApp par ye message bheju?\n\"$cleanMessage\""
         }
 
         return WhatsAppActionResult.RequiresConfirmation(
-            targetName = target,
+            targetName = cleanTarget,
             phoneNumber = resolvedPhone,
-            messageText = messageText,
+            messageText = cleanMessage,
             confirmationPrompt = prompt
         )
     }

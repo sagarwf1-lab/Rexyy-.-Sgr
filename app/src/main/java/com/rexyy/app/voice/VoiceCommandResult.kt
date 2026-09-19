@@ -9,5 +9,10 @@ sealed class VoiceCommandResult {
         val prompt: String,
         val commandToExecute: VoiceCommand
     ) : VoiceCommandResult()
+    data class CollectMessageInput(
+        val targetName: String,
+        val isWhatsApp: Boolean,
+        val prompt: String
+    ) : VoiceCommandResult()
     data class Error(val errorMessage: String) : VoiceCommandResult()
 }

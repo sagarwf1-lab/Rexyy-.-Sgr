@@ -49,6 +49,23 @@ object RexyyCommandRouter {
     private fun routeSingleAction(trimmed: String): VoiceCommand {
         val lower = trimmed.lowercase()
 
+        // --- 0. Wake Word & Conversational Status ---
+        if (isWakeWordCommand(lower)) {
+            return VoiceCommand.WakeWord(rawInput = trimmed)
+        }
+        if (isStopCommand(lower)) {
+            return VoiceCommand.Stop(rawInput = trimmed)
+        }
+        if (isRepeatCommand(lower)) {
+            return VoiceCommand.RepeatLast(rawInput = trimmed)
+        }
+        if (isWhatCanYouDoCommand(lower)) {
+            return VoiceCommand.WhatCanYouDo(rawInput = trimmed)
+        }
+        if (isAreYouThereCommand(lower)) {
+            return VoiceCommand.AreYouThere(rawInput = trimmed)
+        }
+
         // --- A. Incoming Call & Telephony Control ---
         if (isWhoIsCallingCommand(lower)) {
             return VoiceCommand.CheckCaller(rawInput = trimmed)
@@ -60,28 +77,32 @@ object RexyyCommandRouter {
             return VoiceCommand.RejectCall(rawInput = trimmed)
         }
 
-        // --- B. Phone Calls ---
+        // --- B. Contacts Search Local ---
+        val contactsSearchCommand = parseContactsSearchCommand(trimmed, lower)
+        if (contactsSearchCommand != null) return contactsSearchCommand
+
+        // --- C. Phone Calls ---
         val callCommand = parseCallCommand(trimmed, lower)
         if (callCommand != null) return callCommand
 
-        // --- C. WhatsApp Actions ---
+        // --- D. WhatsApp Actions ---
         val whatsAppCommand = parseWhatsAppCommand(trimmed, lower)
         if (whatsAppCommand != null) return whatsAppCommand
 
-        // --- D. Camera & Media ---
+        // --- E. Camera & Media ---
         if (isCameraCommand(lower)) {
             return VoiceCommand.OpenCamera(rawInput = trimmed)
         }
 
-        // --- E. Audio & Volume ---
+        // --- F. Audio & Volume ---
         val volumeCommand = parseVolumeCommand(trimmed, lower)
         if (volumeCommand != null) return volumeCommand
 
-        // --- F. Brightness ---
+        // --- G. Brightness ---
         val brightnessCommand = parseBrightnessCommand(trimmed, lower)
         if (brightnessCommand != null) return brightnessCommand
 
-        // --- G. System Settings, Wi-Fi & Bluetooth ---
+        // --- H. System Settings, Wi-Fi & Bluetooth ---
         if (isBluetoothCommand(lower)) {
             val turnOn = !lower.contains("off") && !lower.contains("band")
             return VoiceCommand.BluetoothSettings(turnOn = turnOn, rawInput = trimmed)
@@ -89,18 +110,23 @@ object RexyyCommandRouter {
         if (isWifiCommand(lower)) {
             return VoiceCommand.WifiSettings(rawInput = trimmed)
         }
-        if (isSettingsCommand(lower)) {
-            return VoiceCommand.OpenSettings(rawInput = trimmed)
-        }
+        val settingsCmd = parseSettingsCommand(trimmed, lower)
+        if (settingsCmd != null) return settingsCmd
 
-        // --- H. Alarms & Timers ---
+        // --- I. Alarms & Timers ---
+        if (isCancelAlarmCommand(lower)) {
+            return VoiceCommand.CancelAlarm(rawInput = trimmed)
+        }
+        if (isCancelTimerCommand(lower)) {
+            return VoiceCommand.CancelTimer(rawInput = trimmed)
+        }
         val timerCommand = parseTimerCommand(trimmed, lower)
         if (timerCommand != null) return timerCommand
 
         val alarmCommand = parseAlarmCommand(trimmed, lower)
         if (alarmCommand != null) return alarmCommand
 
-        // --- I. Calendar & Contacts ---
+        // --- J. Calendar & Contacts App ---
         if (isCalendarCommand(lower)) {
             return VoiceCommand.OpenCalendar(rawInput = trimmed)
         }
@@ -108,24 +134,24 @@ object RexyyCommandRouter {
             return VoiceCommand.OpenContacts(rawInput = trimmed)
         }
 
-        // --- J. Device Info ---
+        // --- K. Device Info ---
         if (isDeviceInfoCommand(lower)) {
             return VoiceCommand.GetDeviceInfo(rawInput = trimmed)
         }
 
-        // --- K. SMS Messaging ---
+        // --- L. SMS Messaging ---
         val smsCommand = parseSmsCommand(trimmed, lower)
         if (smsCommand != null) return smsCommand
 
-        // --- L. Open App (Dynamic Installed Apps Matching) ---
+        // --- M. Open App (Dynamic Installed Apps Matching & Aliases) ---
         val openAppCommand = parseOpenAppCommand(trimmed, lower)
         if (openAppCommand != null) return openAppCommand
 
-        // --- M. Web Search ---
+        // --- N. Web Search ---
         val searchCommand = parseSearchCommand(trimmed, lower)
         if (searchCommand != null) return searchCommand
 
-        // --- N. Reminders ---
+        // --- O. Reminders ---
         if (isReminderCommand(lower)) {
             val title = extractReminderTitle(trimmed, lower)
             return VoiceCommand.SetReminder(title = title, rawInput = trimmed)
@@ -133,6 +159,80 @@ object RexyyCommandRouter {
 
         // Default: Forward to Generative AI model
         return VoiceCommand.AiChat(prompt = trimmed)
+    }
+
+    private fun isWakeWordCommand(lower: String): Boolean {
+        return lower == "hello rexyy" || lower == "hello rex" ||
+                lower == "hey rexyy" || lower == "hey rex" ||
+                lower == "hi rexyy" || lower == "hi rex" ||
+                lower == "rexyy" || lower == "rex" ||
+                lower == "ok rexyy" || lower == "activate rexyy"
+    }
+
+    private fun isStopCommand(lower: String): Boolean {
+        return lower == "stop" || lower == "ruko" || lower == "bas" ||
+                lower == "cancel" || lower == "cancel karo" || lower == "shut up" ||
+                lower == "stop listening" || lower == "stop speaking"
+    }
+
+    private fun isRepeatCommand(lower: String): Boolean {
+        return lower == "repeat that" || lower == "repeat" ||
+                lower == "repeat karo" || lower == "dobara bolo" ||
+                lower == "phir se bolo" || lower == "kya bola"
+    }
+
+    private fun isWhatCanYouDoCommand(lower: String): Boolean {
+        return lower == "what can you do" || lower == "what can you do?" ||
+                lower == "kya kar sakte ho" || lower == "tum kya kar sakte ho" ||
+                lower == "help" || lower == "commands" || lower == "features"
+    }
+
+    private fun isAreYouThereCommand(lower: String): Boolean {
+        return lower == "are you there" || lower == "are you there?" ||
+                lower == "are you listening" || lower == "kya tum wahan ho" ||
+                lower == "sun rahe ho"
+    }
+
+    private fun isCancelAlarmCommand(lower: String): Boolean {
+        return lower.contains("alarm") && (
+                lower.contains("cancel") || lower.contains("dismiss") ||
+                        lower.contains("band") || lower.contains("hatao")
+                )
+    }
+
+    private fun isCancelTimerCommand(lower: String): Boolean {
+        return lower.contains("timer") && (
+                lower.contains("cancel") || lower.contains("dismiss") ||
+                        lower.contains("band") || lower.contains("hatao") || lower.contains("stop")
+                )
+    }
+
+    private fun parseContactsSearchCommand(raw: String, lower: String): VoiceCommand.FindContact? {
+        val findMatcher = Regex("(?i)^(find|search|lookup)\\s+(.+?)\\s+in\\s+(my\\s+)?contacts$").find(raw)
+        if (findMatcher != null) {
+            val name = cleanTargetName(findMatcher.groupValues[2])
+            return VoiceCommand.FindContact(contactName = name, rawInput = raw)
+        }
+
+        val hindiMatcher = Regex("(?i)^(.+?)\\s+(ka|ki)?\\s*(contact|number|phone)\\s+(dhundo|search karo|batao)$").find(raw)
+        if (hindiMatcher != null) {
+            val name = cleanTargetName(hindiMatcher.groupValues[1])
+            return VoiceCommand.FindContact(contactName = name, rawInput = raw)
+        }
+
+        if (lower.startsWith("find contact ") || lower.startsWith("search contact ")) {
+            val name = cleanTargetName(raw.substring(13))
+            return VoiceCommand.FindContact(contactName = name, rawInput = raw)
+        }
+
+        return null
+    }
+
+    private fun cleanTargetName(raw: String): String {
+        return raw.replace("(?i)^\\s*(to|on|for|pe|par|ko|send|message)\\s+".toRegex(), "")
+            .replace("(?i)\\s+(ko|pe|par|bhejo|to|on)\\s*$".toRegex(), "")
+            .trim()
+            .ifBlank { "Contact" }
     }
 
     private fun isWhoIsCallingCommand(lower: String): Boolean {
@@ -205,38 +305,46 @@ object RexyyCommandRouter {
             return VoiceCommand.OpenWhatsApp(rawInput = raw)
         }
 
-        // "Rahul ko WhatsApp message bhejo: Main aa raha hoon" or "Send WhatsApp message to Rahul: I am coming"
-        // Patterns:
-        // "<Target> ko whatsapp message bhejo: <Message>"
-        // "whatsapp par <Target> ko message bhejo: <Message>"
+        // Colon syntax: "Send WhatsApp to Ramzan: Hello there" or "Ramzan ko whatsapp message bhejo: Kal milte hain"
         val colonSplit = raw.split(":")
         if (colonSplit.size >= 2) {
             val header = colonSplit[0].trim()
             val body = colonSplit.subList(1, colonSplit.size).joinToString(":").trim()
-            val target = extractWhatsAppTarget(header)
+            val target = cleanTargetName(extractWhatsAppTarget(header))
             return VoiceCommand.WhatsAppMessage(target = target, body = body, rawInput = raw)
         }
 
         // "Rahul ko whatsapp par bolo main late ho jaunga"
-        val boloPattern = Regex("(?i)^(.+?)\\s+ko\\s+whatsapp\\s+(par|pe)\\s+(bolo|bhejo)\\s+(.+)$")
+        val boloPattern = Regex("(?i)^(.+?)\\s+ko\\s+whatsapp\\s+(par|pe)\\s+(bolo|bhejo|likho)\\s+(.+)$")
         val boloMatch = boloPattern.find(raw)
         if (boloMatch != null) {
-            val target = boloMatch.groupValues[1].trim()
+            val target = cleanTargetName(boloMatch.groupValues[1])
             val message = boloMatch.groupValues[4].trim()
             return VoiceCommand.WhatsAppMessage(target = target, body = message, rawInput = raw)
         }
 
-        // "Send WhatsApp message to Rahul" -> prepare message with empty body
-        val sendToMatch = Regex("(?i)^(send|bhejo)\\s+whatsapp\\s+(message\\s+)?(to\\s+)?(.+)$").find(raw)
+        // "send WhatsApp message on Ramzan" / "send whatsapp message to Ramzan" / "send whatsapp to Ramzan"
+        val sendToMatch = Regex("(?i)^(send|bhejo)?\\s*whats\\s*app\\s+(message\\s+)?(to|on|for)?\\s*(.+)$").find(raw)
         if (sendToMatch != null) {
-            val target = sendToMatch.groupValues[4].trim()
-            return VoiceCommand.WhatsAppMessage(target = target, body = "", rawInput = raw)
+            val target = cleanTargetName(sendToMatch.groupValues[4])
+            if (target.isNotBlank()) {
+                return VoiceCommand.WhatsAppMessage(target = target, body = "", rawInput = raw)
+            }
+        }
+
+        // "Ramzan ko whatsapp message bhejo" / "Ramzan ko whatsapp bhejo"
+        val hindiSendMatch = Regex("(?i)^(.+?)\\s+ko\\s+whats\\s*app\\s*(message\\s+)?(bhejo|karo|send karo)?$").find(raw)
+        if (hindiSendMatch != null) {
+            val target = cleanTargetName(hindiSendMatch.groupValues[1])
+            if (target.isNotBlank()) {
+                return VoiceCommand.WhatsAppMessage(target = target, body = "", rawInput = raw)
+            }
         }
 
         // "Rahul ka whatsapp chat kholo" / "Open Rahul whatsapp chat"
         val chatMatch = Regex("(?i)^(.+?)\\s+(ka|ki)?\\s*whatsapp\\s+chat\\s+(kholo|open karo)$").find(raw)
         if (chatMatch != null) {
-            val target = chatMatch.groupValues[1].trim()
+            val target = cleanTargetName(chatMatch.groupValues[1])
             return VoiceCommand.WhatsAppChat(target = target, rawInput = raw)
         }
 
@@ -244,7 +352,7 @@ object RexyyCommandRouter {
     }
 
     private fun extractWhatsAppTarget(header: String): String {
-        return header.replace("(?i)(send|bhejo|message|whatsapp|whats app|par|pe|ko|to)".toRegex(), "")
+        return header.replace("(?i)(send|bhejo|message|whatsapp|whats app|par|pe|ko|to|on|for)".toRegex(), "")
             .trim()
             .ifBlank { "Contact" }
     }

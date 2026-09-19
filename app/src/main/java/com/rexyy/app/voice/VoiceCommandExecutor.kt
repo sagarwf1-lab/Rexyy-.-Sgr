@@ -13,11 +13,14 @@ import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
+import com.rexyy.app.data.local.SecureStorage
 import com.rexyy.app.launcher.AppDiscoveryManager
 import com.rexyy.app.launcher.AppLaunchOutcome
 import com.rexyy.app.telecom.CallActionController
 import com.rexyy.app.telecom.CallStateManager
+import com.rexyy.app.telecom.CallerIdentityResolver
 import com.rexyy.app.telecom.TelecomActionResult
+import com.rexyy.app.utils.RexyyLanguageManager
 import com.rexyy.app.whatsapp.WhatsAppActionManager
 import com.rexyy.app.whatsapp.WhatsAppActionResult
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +48,14 @@ object VoiceCommandExecutor {
                 is VoiceCommand.OpenCamera -> executeOpenCamera(context)
                 is VoiceCommand.OpenCalendar -> executeOpenCalendar(context)
                 is VoiceCommand.OpenContacts -> executeOpenContacts(context)
+                is VoiceCommand.FindContact -> executeFindContact(command.contactName, context)
+                is VoiceCommand.WakeWord -> executeWakeWord(context)
+                is VoiceCommand.CancelAlarm -> executeCancelAlarm(context)
+                is VoiceCommand.CancelTimer -> executeCancelTimer(context)
+                is VoiceCommand.Stop -> VoiceCommandResult.Handled("Stopped.")
+                is VoiceCommand.WhatCanYouDo -> executeWhatCanYouDo()
+                is VoiceCommand.AreYouThere -> VoiceCommandResult.Handled("Yes Sir, I am right here and ready for your command.")
+                is VoiceCommand.RepeatLast -> VoiceCommandResult.Handled("__REPEAT_LAST__")
                 is VoiceCommand.GetDeviceInfo -> executeGetDeviceInfo(context)
                 is VoiceCommand.SetTimer -> executeSetTimer(command.seconds, command.message, context)
                 is VoiceCommand.SetAlarm -> executeSetAlarm(command.hour, command.minute, command.message, context)
@@ -88,9 +99,24 @@ object VoiceCommandExecutor {
 
     private fun executeWhatsAppMessage(cmd: VoiceCommand.WhatsAppMessage, context: Context): VoiceCommandResult {
         val wa = WhatsAppActionManager(context)
+        if (cmd.body.isBlank()) {
+            return VoiceCommandResult.CollectMessageInput(
+                targetName = cmd.target,
+                isWhatsApp = true,
+                prompt = "${cmd.target} ko WhatsApp par kya message bhejna hai?"
+            )
+        }
+
         if (!cmd.confirmedSend) {
-            val prep = wa.prepareMessage(cmd.target, cmd.body.ifBlank { "Hello" })
+            val prep = wa.prepareMessage(cmd.target, cmd.body)
             return when (prep) {
+                is WhatsAppActionResult.NeedsMessageBody -> {
+                    VoiceCommandResult.CollectMessageInput(
+                        targetName = prep.targetName,
+                        isWhatsApp = true,
+                        prompt = prep.prompt
+                    )
+                }
                 is WhatsAppActionResult.RequiresConfirmation -> {
                     VoiceCommandResult.RequiresConfirmation(
                         prompt = prep.confirmationPrompt,
@@ -101,7 +127,8 @@ object VoiceCommandExecutor {
                 else -> VoiceCommandResult.Error("Unable to prepare WhatsApp message.")
             }
         } else {
-            return when (val sent = wa.executeSendMessage(cmd.target, null, cmd.body)) {
+            val resolvedPhone = CallerIdentityResolver.findPhoneNumberByName(context, cmd.target)
+            return when (val sent = wa.executeSendMessage(cmd.target, resolvedPhone, cmd.body)) {
                 is WhatsAppActionResult.Success -> VoiceCommandResult.Handled(sent.message)
                 is WhatsAppActionResult.NotInstalled -> VoiceCommandResult.Handled(sent.message)
                 is WhatsAppActionResult.Failure -> VoiceCommandResult.Error(sent.error)
@@ -351,21 +378,26 @@ object VoiceCommandExecutor {
     }
 
     private fun executeSendMessage(cmd: VoiceCommand.SendMessage, context: Context): VoiceCommandResult {
+        if (cmd.body.isBlank()) {
+            return VoiceCommandResult.CollectMessageInput(
+                targetName = cmd.target,
+                isWhatsApp = false,
+                prompt = "${cmd.target} ko kya SMS bhejna hai?"
+            )
+        }
+
         if (!cmd.confirmedSend) {
-            val prompt = if (cmd.body.isNotBlank()) {
-                "${cmd.target} ko ye SMS bheju?\n\"${cmd.body}\""
-            } else {
-                "${cmd.target} ko SMS bheju?"
-            }
+            val prompt = "${cmd.target} ko ye SMS bheju?\n\"${cmd.body}\""
             return VoiceCommandResult.RequiresConfirmation(
                 prompt = prompt,
                 commandToExecute = cmd.copy(confirmedSend = true)
             )
         }
 
+        val resolvedPhone = CallerIdentityResolver.findPhoneNumberByName(context, cmd.target) ?: cmd.target
         val sendIntent = Intent(Intent.ACTION_SENDTO).apply {
-            data = Uri.parse("smsto:${Uri.encode(cmd.target)}")
-            if (cmd.body.isNotBlank()) putExtra("sms_body", cmd.body)
+            data = Uri.parse("smsto:${Uri.encode(resolvedPhone)}")
+            putExtra("sms_body", cmd.body)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         return try {
@@ -374,6 +406,98 @@ object VoiceCommandExecutor {
         } catch (e: Exception) {
             VoiceCommandResult.Error("Could not compose SMS: ${e.localizedMessage}")
         }
+    }
+
+    private fun executeFindContact(contactName: String, context: Context): VoiceCommandResult {
+        val storage = SecureStorage(context)
+        val lang = RexyyLanguageManager.parseLanguage(storage.getVoiceLanguage())
+
+        return when (val result = CallerIdentityResolver.resolveContactSummary(context, contactName)) {
+            is CallerIdentityResolver.ContactSearchResult.PermissionNeeded -> {
+                VoiceCommandResult.Error("Contacts permission is required to search contacts. Please grant Contacts permission in Settings.")
+            }
+            is CallerIdentityResolver.ContactSearchResult.NotFound -> {
+                val msg = when (lang) {
+                    com.rexyy.app.utils.AppLanguage.HINDI -> "कॉन्टैक्ट्स में \"${result.query}\" नहीं मिला।"
+                    com.rexyy.app.utils.AppLanguage.ENGLISH -> "Could not find \"${result.query}\" in your contacts."
+                    com.rexyy.app.utils.AppLanguage.HINGLISH -> "\"${result.query}\" contacts mein nahi mila."
+                }
+                VoiceCommandResult.Handled(msg)
+            }
+            is CallerIdentityResolver.ContactSearchResult.SingleMatch -> {
+                val c = result.contact
+                val msg = when (lang) {
+                    com.rexyy.app.utils.AppLanguage.HINDI -> "${c.name} का नंबर मिल गया: ${c.phoneNumber}। क्या आप कॉल या WhatsApp करना चाहते हैं?"
+                    com.rexyy.app.utils.AppLanguage.ENGLISH -> "Found ${c.name}: ${c.phoneNumber}. You can say \"Call ${c.name}\" or \"WhatsApp ${c.name}\"."
+                    com.rexyy.app.utils.AppLanguage.HINGLISH -> "Found ${c.name}: ${c.phoneNumber}. Aap keh sakte hain \"${c.name} ko call karo\" ya \"${c.name} ko WhatsApp bhejo\"."
+                }
+                VoiceCommandResult.Handled(msg)
+            }
+            is CallerIdentityResolver.ContactSearchResult.MultipleMatches -> {
+                val list = result.matches.take(3).joinToString(", ") { "${it.name} (${it.phoneNumber})" }
+                val msg = when (lang) {
+                    com.rexyy.app.utils.AppLanguage.HINDI -> "${result.matches.size} कॉन्टैक्ट्स मिले: $list। आप किसे चुनना चाहते हैं?"
+                    com.rexyy.app.utils.AppLanguage.ENGLISH -> "Found ${result.matches.size} matching contacts: $list. Which one would you like to call or message?"
+                    com.rexyy.app.utils.AppLanguage.HINGLISH -> "${result.matches.size} contacts mile: $list. Kise call ya message karna hai?"
+                }
+                VoiceCommandResult.Handled(msg)
+            }
+        }
+    }
+
+    private fun executeWakeWord(context: Context): VoiceCommandResult {
+        val storage = SecureStorage(context)
+        val lang = RexyyLanguageManager.parseLanguage(storage.getVoiceLanguage())
+        val name = storage.getAssistantName()
+        return VoiceCommandResult.Handled(RexyyLanguageManager.getWakeResponse(lang, name))
+    }
+
+    private fun executeCancelAlarm(context: Context): VoiceCommandResult {
+        return try {
+            val intent = Intent(AlarmClock.ACTION_DISMISS_ALARM).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            VoiceCommandResult.Handled("Dismissing alarm...")
+        } catch (_: Exception) {
+            val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            try {
+                context.startActivity(intent)
+                VoiceCommandResult.Handled("Opening alarms to cancel.")
+            } catch (e: Exception) {
+                VoiceCommandResult.Error("Could not cancel alarm: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    private fun executeCancelTimer(context: Context): VoiceCommandResult {
+        return try {
+            val intent = Intent(AlarmClock.ACTION_DISMISS_TIMER).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            VoiceCommandResult.Handled("Dismissing timer...")
+        } catch (_: Exception) {
+            VoiceCommandResult.Handled("Timer dismiss intent sent.")
+        }
+    }
+
+    private fun executeWhatCanYouDo(): VoiceCommandResult {
+        val capabilities = """
+            Here is what I can do locally & fast:
+            • Open Apps: "Open YouTube", "Instagram kholo", "Open WhatsApp", "YT kholo"
+            • Calls: "Call Ramzan", "Ramzan ko call karo", "Incoming caller check"
+            • WhatsApp: "Send WhatsApp to Ramzan", "Ramzan ko WhatsApp message bhejo"
+            • SMS: "Ramzan ko SMS bhejo"
+            • Contacts: "Find Ramzan in my contacts"
+            • Alarms & Timers: "7 baje alarm lagao", "10 minute ka timer lagao", "Cancel alarm"
+            • Device & Settings: "Bluetooth settings", "Wi-Fi settings", "Volume badhao", "Brightness set karo"
+            • Multi-Step: "Open YouTube and search cricket"
+            • AI Knowledge: Ask anything for complex conversational answers!
+        """.trimIndent()
+        return VoiceCommandResult.Handled(capabilities)
     }
 
     private fun executeSetReminder(title: String, context: Context): VoiceCommandResult {
