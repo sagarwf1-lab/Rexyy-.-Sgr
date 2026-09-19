@@ -1,8 +1,10 @@
 package com.rexyy.app.ui.chat
 
+import com.rexyy.app.confirmation.ConfirmationRequest
 import com.rexyy.app.data.local.SecureStorage
 import com.rexyy.app.model.ChatMessage
 import com.rexyy.app.network.provider.AiProviderType
+import com.rexyy.app.task.TaskPlan
 import com.rexyy.app.voice.VoiceState
 
 data class ChatUiState(
@@ -28,5 +30,7 @@ data class ChatUiState(
     val userName: String = SecureStorage.DEFAULT_USER_NAME,
     val assistantName: String = SecureStorage.DEFAULT_ASSISTANT_NAME,
     val isListening: Boolean = false,
-    val lastActionFeedback: String? = null
+    val lastActionFeedback: String? = null,
+    val pendingConfirmation: ConfirmationRequest? = null,
+    val activeTaskPlan: TaskPlan? = null
 )

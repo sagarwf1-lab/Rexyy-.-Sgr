@@ -95,7 +95,10 @@ fun RexyyMainScreen(
                     onQuickCommand = { command -> viewModel.executeLocalAction(command, isVoice = false) },
                     onOpenChat = { currentScreen = Screen.Chat },
                     onOpenSettings = { currentScreen = Screen.Settings },
-                    onOpenPermissions = { currentScreen = Screen.PermissionCenter }
+                    onOpenPermissions = { currentScreen = Screen.PermissionCenter },
+                    onConfirmAction = { viewModel.confirmPendingAction() },
+                    onCancelAction = { viewModel.cancelPendingAction() },
+                    onCancelTask = { viewModel.cancelActiveTask() }
                 )
             }
 
@@ -111,6 +114,9 @@ fun RexyyMainScreen(
                     onCancelVoiceInput = { viewModel.cancelVoiceInput() },
                     onStopSpeaking = { viewModel.stopSpeaking() },
                     onMicrophonePermissionDenied = { viewModel.onMicrophonePermissionDenied() },
+                    onConfirmAction = { viewModel.confirmPendingAction() },
+                    onCancelAction = { viewModel.cancelPendingAction() },
+                    onCancelTask = { viewModel.cancelActiveTask() },
                     onNavigateBack = { currentScreen = Screen.MainAssistant }
                 )
             }

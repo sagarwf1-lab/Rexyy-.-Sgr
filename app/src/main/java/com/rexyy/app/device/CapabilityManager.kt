@@ -47,6 +47,10 @@ object CapabilityManager {
 
     fun getCapabilities(context: Context): List<DeviceCapability> {
         val hasMic = hasPermission(context, Manifest.permission.RECORD_AUDIO)
+        val hasContacts = hasPermission(context, Manifest.permission.READ_CONTACTS)
+        val hasPhoneState = hasPermission(context, Manifest.permission.READ_PHONE_STATE)
+        val hasCall = hasPermission(context, Manifest.permission.CALL_PHONE)
+        val hasCamera = hasPermission(context, Manifest.permission.CAMERA)
         val hasNotif = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             hasPermission(context, Manifest.permission.POST_NOTIFICATIONS)
         } else {
@@ -65,6 +69,30 @@ object CapabilityManager {
                 requiredPermissionName = Manifest.permission.RECORD_AUDIO
             ),
             DeviceCapability(
+                id = "contacts",
+                name = "Contacts & Caller ID",
+                description = "Resolves contacts for calls, WhatsApp messaging, and incoming call announcements",
+                status = if (hasContacts) CapabilityStatus.AVAILABLE else CapabilityStatus.PERMISSION_REQUIRED,
+                requiresPermission = true,
+                requiredPermissionName = Manifest.permission.READ_CONTACTS
+            ),
+            DeviceCapability(
+                id = "phone_state",
+                name = "Call Detection & Control",
+                description = "Detects incoming calls, announces callers, and manages call actions",
+                status = if (hasPhoneState) CapabilityStatus.AVAILABLE else CapabilityStatus.PERMISSION_REQUIRED,
+                requiresPermission = true,
+                requiredPermissionName = Manifest.permission.READ_PHONE_STATE
+            ),
+            DeviceCapability(
+                id = "camera",
+                name = "Camera & Capture",
+                description = "Opens camera and captures images upon assistant command",
+                status = if (hasCamera) CapabilityStatus.AVAILABLE else CapabilityStatus.PERMISSION_REQUIRED,
+                requiresPermission = true,
+                requiredPermissionName = Manifest.permission.CAMERA
+            ),
+            DeviceCapability(
                 id = "notif",
                 name = "Notifications",
                 description = "Status updates, task completion alerts, and reminders",
@@ -74,27 +102,29 @@ object CapabilityManager {
             ),
             DeviceCapability(
                 id = "app_launch",
-                name = "App Navigation",
-                description = "Launch installed apps, YouTube, WhatsApp, and browser safely via Android Intent",
+                name = "Dynamic App Launcher",
+                description = "Discovers and launches all installed apps, YouTube, WhatsApp, and browser",
                 status = CapabilityStatus.AVAILABLE
             ),
             DeviceCapability(
                 id = "settings_control",
                 name = "System Settings & Alarms",
-                description = "Open device settings, Bluetooth panel, Wi-Fi, and set alarms",
+                description = "Open device settings, Bluetooth, Wi-Fi, and set alarms or timers",
                 status = CapabilityStatus.AVAILABLE
             ),
             DeviceCapability(
                 id = "audio_volume",
-                name = "Volume Management",
-                description = "Adjust media and voice volume via system AudioManager",
+                name = "Volume & Brightness",
+                description = "Adjust media volume, mute, and display brightness via system services",
                 status = CapabilityStatus.AVAILABLE
             ),
             DeviceCapability(
                 id = "phone_call",
-                name = "Phone & Dialing",
-                description = "Prepare phone dialer for specified contact or number",
-                status = CapabilityStatus.AVAILABLE,
+                name = "Phone & Calling",
+                description = "Direct or dialer phone calls with user confirmation",
+                status = if (hasCall) CapabilityStatus.AVAILABLE else CapabilityStatus.PERMISSION_REQUIRED,
+                requiresPermission = true,
+                requiredPermissionName = Manifest.permission.CALL_PHONE,
                 requiresConfirmation = true
             ),
             DeviceCapability(

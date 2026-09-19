@@ -37,6 +37,8 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,6 +71,7 @@ import com.rexyy.app.ui.components.ChatInputBar
 import com.rexyy.app.ui.components.MessageBubble
 import com.rexyy.app.ui.components.RexyyTopBar
 import com.rexyy.app.ui.components.TypingIndicator
+import com.rexyy.app.ui.theme.RexyyCyanLight
 import com.rexyy.app.ui.theme.RexyyCyanPrimary
 import com.rexyy.app.ui.theme.RexyyDarkBackground
 import com.rexyy.app.ui.theme.RexyyDarkBorder
@@ -94,6 +97,9 @@ fun ChatScreen(
     onCancelVoiceInput: () -> Unit = {},
     onStopSpeaking: () -> Unit = {},
     onMicrophonePermissionDenied: () -> Unit = {},
+    onConfirmAction: () -> Unit = {},
+    onCancelAction: () -> Unit = {},
+    onCancelTask: () -> Unit = {},
     onNavigateBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -225,6 +231,104 @@ fun ChatScreen(
                                     }
                                 }
                                 VoiceState.IDLE -> Unit
+                            }
+                        }
+                    }
+                }
+
+                // Pending Confirmation Card
+                if (uiState.pendingConfirmation != null) {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = RexyyDarkSurface),
+                        border = BorderStroke(1.5.dp, RexyyCyanPrimary),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "CONFIRMATION REQUIRED",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.2.sp,
+                                    color = RexyyCyanPrimary
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = uiState.pendingConfirmation.prompt,
+                                style = MaterialTheme.typography.bodyMedium.copy(color = RexyyTextPrimary)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.End,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                TextButton(onClick = onCancelAction) {
+                                    Text("Cancel", color = RexyyTextMuted)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = onConfirmAction,
+                                    colors = ButtonDefaults.buttonColors(containerColor = RexyyCyanPrimary)
+                                ) {
+                                    Text("Confirm", color = androidx.compose.ui.graphics.Color.Black, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Active Task Progress Card
+                if (uiState.activeTaskPlan != null && !uiState.activeTaskPlan.isFinished) {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = RexyyDarkSurface),
+                        border = BorderStroke(1.dp, RexyyCyanPrimary.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "TASK: ${uiState.activeTaskPlan.title}",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = RexyyCyanPrimary
+                                    )
+                                )
+                                TextButton(onClick = onCancelTask) {
+                                    Text("Cancel", color = RexyyErrorRed, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            uiState.activeTaskPlan.steps.forEachIndexed { idx, step ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(vertical = 2.dp)
+                                ) {
+                                    val statusText = when (step.status) {
+                                        com.rexyy.app.task.TaskStepStatus.RUNNING -> "⏳ Running..."
+                                        com.rexyy.app.task.TaskStepStatus.SUCCESS -> "✓"
+                                        com.rexyy.app.task.TaskStepStatus.FAILED -> "✗"
+                                        com.rexyy.app.task.TaskStepStatus.CANCELLED -> "—"
+                                        com.rexyy.app.task.TaskStepStatus.QUEUED -> "•"
+                                    }
+                                    Text(
+                                        text = "${idx + 1}. ${step.description}",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = RexyyTextSecondary),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        text = statusText,
+                                        style = MaterialTheme.typography.labelSmall.copy(color = RexyyCyanLight)
+                                    )
+                                }
                             }
                         }
                     }

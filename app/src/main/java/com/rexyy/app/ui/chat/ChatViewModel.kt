@@ -7,12 +7,15 @@ import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.AP
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.rexyy.app.confirmation.ConfirmationManager
 import com.rexyy.app.network.NetworkResult
 import com.rexyy.app.network.provider.AiProviderType
 import com.rexyy.app.repository.AssistantRepository
+import com.rexyy.app.router.AiActionTagParser
+import com.rexyy.app.router.RexyyCommandRouter
+import com.rexyy.app.task.TaskExecutor
 import com.rexyy.app.voice.VoiceCommand
 import com.rexyy.app.voice.VoiceCommandExecutor
-import com.rexyy.app.voice.VoiceCommandParser
 import com.rexyy.app.voice.VoiceCommandResult
 import com.rexyy.app.voice.VoiceInputManager
 import com.rexyy.app.voice.VoiceState
@@ -33,6 +36,9 @@ class ChatViewModel(
         application = application,
         repository = AssistantRepository(application)
     )
+
+    private val confirmationManager = ConfirmationManager()
+    private val taskExecutor = TaskExecutor(application)
 
     private val voiceInputManager = VoiceInputManager(
         context = application,
@@ -93,6 +99,8 @@ class ChatViewModel(
 
     init {
         loadConversationHistory()
+        observeConfirmation()
+        observeActiveTask()
     }
 
     private fun loadConversationHistory() {
@@ -103,10 +111,29 @@ class ChatViewModel(
         }
     }
 
+    private fun observeConfirmation() {
+        viewModelScope.launch {
+            confirmationManager.pending.collect { req ->
+                _uiState.update { it.copy(pendingConfirmation = req) }
+            }
+        }
+    }
+
+    private fun observeActiveTask() {
+        viewModelScope.launch {
+            taskExecutor.activeTask.collect { task ->
+                _uiState.update { it.copy(activeTaskPlan = task) }
+            }
+        }
+    }
+
     fun onInputChange(newText: String) {
         _uiState.update { it.copy(inputText = newText, errorMessage = null) }
     }
 
+    /**
+     * Unified send method for text input: shares the exact same command router as voice input.
+     */
     fun sendMessage() {
         val currentText = _uiState.value.inputText.trim()
         if (currentText.isBlank() || _uiState.value.isLoading) return
@@ -114,51 +141,15 @@ class ChatViewModel(
         _uiState.update {
             it.copy(
                 inputText = "",
-                isLoading = true,
                 errorMessage = null
             )
         }
 
-        executeAiMessage(currentText, isSpokenResponseRequested = false)
-    }
-
-    private fun executeAiMessage(
-        promptText: String,
-        isSpokenResponseRequested: Boolean,
-        providerOverride: AiProviderType? = null
-    ) {
-        viewModelScope.launch {
-            val result = repository.sendMessage(promptText, providerOverride)
-            when (result) {
-                is NetworkResult.Success -> {
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            voiceState = if (isSpokenResponseRequested && it.isVoiceRepliesEnabled) VoiceState.SPEAKING else VoiceState.IDLE,
-                            voiceStatusMessage = null
-                        )
-                    }
-                    if (isSpokenResponseRequested && _uiState.value.isVoiceRepliesEnabled) {
-                        voiceTtsManager.speak(result.data.content, _uiState.value.voiceLanguage)
-                    }
-                }
-                is NetworkResult.Error -> {
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            voiceState = VoiceState.IDLE,
-                            voiceStatusMessage = null,
-                            errorMessage = result.userFriendlyMessage
-                        )
-                    }
-                }
-            }
-        }
+        processUnifiedInput(currentText, isVoice = false)
     }
 
     /**
-     * Entry point for speech recognition results:
-     * Parses the command and either executes an Android action or passes to selected AI model.
+     * Unified entry point for voice input.
      */
     private fun handleVoiceInput(recognizedText: String) {
         val trimmed = recognizedText.trim()
@@ -175,64 +166,238 @@ class ChatViewModel(
             )
         }
 
-        // If voice commands mode is enabled, evaluate command patterns
-        if (_uiState.value.isVoiceCommandsEnabled) {
-            val command = VoiceCommandParser.parse(trimmed)
-            when (command) {
-                is VoiceCommand.AiChat -> {
-                    // Standard conversational prompt -> Route through AI chat
-                    _uiState.update { it.copy(inputText = "", isLoading = true) }
-                    executeAiMessage(command.prompt, isSpokenResponseRequested = true, providerOverride = command.providerOverride)
+        processUnifiedInput(trimmed, isVoice = true)
+    }
+
+    /**
+     * Core Command Processing Pipeline shared by BOTH voice and text inputs.
+     */
+    private fun processUnifiedInput(input: String, isVoice: Boolean) {
+        val trimmed = input.trim()
+        val lower = trimmed.lowercase()
+
+        // 1. Check if user is answering an active confirmation prompt
+        if (confirmationManager.hasPending()) {
+            val isAffirmative = lower in listOf("yes", "haan", "ha", "confirm", "send", "call", "bhejo", "karo", "sure", "ok", "yep", "do it")
+            val isNegative = lower in listOf("no", "nahi", "cancel", "mat karo", "stop", "nevermind", "nah", "abort")
+
+            if (isAffirmative) {
+                confirmPendingAction()
+                return
+            } else if (isNegative) {
+                cancelPendingAction()
+                return
+            }
+        }
+
+        // 2. Route via RexyyCommandRouter (Local-first fast evaluation)
+        val command = RexyyCommandRouter.route(trimmed)
+
+        when (command) {
+            is VoiceCommand.AiChat -> {
+                // Conversational request -> Send to AI model
+                _uiState.update { it.copy(inputText = "", isLoading = true) }
+                executeAiMessage(command.prompt, isSpokenResponseRequested = isVoice, providerOverride = command.providerOverride)
+            }
+            is VoiceCommand.MultiStepTask -> {
+                // Sequential task plan -> Execute multi-step task
+                executeMultiStepTask(command, isVoice)
+            }
+            else -> {
+                // Local phone action -> Execute immediately with zero AI latency
+                executeLocalDeviceCommand(command, trimmed, isVoice)
+            }
+        }
+    }
+
+    private fun executeMultiStepTask(command: VoiceCommand.MultiStepTask, isVoice: Boolean) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    inputText = "",
+                    voiceState = VoiceState.PROCESSING,
+                    voiceStatusMessage = "Running task: ${command.description}"
+                )
+            }
+
+            val plan = com.rexyy.app.task.TaskPlan(
+                id = java.util.UUID.randomUUID().toString(),
+                title = command.description,
+                steps = command.steps.mapIndexed { idx, cmd ->
+                    com.rexyy.app.task.TaskStep(
+                        id = "step_${idx + 1}",
+                        description = (cmd as? VoiceCommand.OpenApp)?.let { "Open ${it.appName}" }
+                            ?: (cmd as? VoiceCommand.GoogleSearch)?.let { "Search ${it.query}" }
+                            ?: "Step ${idx + 1}",
+                        command = cmd
+                    )
                 }
-                else -> {
-                    // Local device command -> Execute intent and record in chat history
-                    viewModelScope.launch {
-                        val result = VoiceCommandExecutor.execute(command, getApplication())
-                        when (result) {
-                            is VoiceCommandResult.Handled -> {
-                                repository.recordCommandInteraction(trimmed, result.replyText, isError = false)
-                                _uiState.update {
-                                    it.copy(
-                                        inputText = "",
-                                        voiceState = if (it.isVoiceRepliesEnabled) VoiceState.SPEAKING else VoiceState.IDLE,
-                                        voiceStatusMessage = null
-                                    )
-                                }
-                                if (_uiState.value.isVoiceRepliesEnabled) {
-                                    voiceTtsManager.speak(result.replyText, _uiState.value.voiceLanguage)
-                                }
-                            }
-                            is VoiceCommandResult.ForwardToAi -> {
-                                _uiState.update { it.copy(inputText = "", isLoading = true) }
-                                executeAiMessage(result.prompt, isSpokenResponseRequested = true, providerOverride = result.providerOverride)
-                            }
-                            is VoiceCommandResult.RequiresConfirmation -> {
-                                _uiState.update {
-                                    it.copy(
-                                        voiceState = VoiceState.IDLE,
-                                        voiceStatusMessage = null
-                                    )
-                                }
-                            }
-                            is VoiceCommandResult.Error -> {
-                                repository.recordCommandInteraction(trimmed, result.errorMessage, isError = true)
-                                _uiState.update {
-                                    it.copy(
-                                        inputText = "",
-                                        voiceState = VoiceState.IDLE,
-                                        voiceStatusMessage = null,
-                                        errorMessage = result.errorMessage
-                                    )
-                                }
-                            }
-                        }
+            )
+
+            val result = taskExecutor.executePlan(plan) { updatedPlan ->
+                _uiState.update { it.copy(activeTaskPlan = updatedPlan) }
+            }
+
+            val replyText = when (result) {
+                is VoiceCommandResult.Handled -> result.replyText
+                is VoiceCommandResult.Error -> result.errorMessage
+                else -> "Task finished."
+            }
+
+            repository.recordCommandInteraction(command.rawInput, replyText, isError = result is VoiceCommandResult.Error)
+
+            _uiState.update {
+                it.copy(
+                    voiceState = if (isVoice && it.isVoiceRepliesEnabled) VoiceState.SPEAKING else VoiceState.IDLE,
+                    voiceStatusMessage = null,
+                    lastActionFeedback = replyText
+                )
+            }
+
+            if (isVoice && _uiState.value.isVoiceRepliesEnabled) {
+                voiceTtsManager.speak(replyText, _uiState.value.voiceLanguage)
+            }
+        }
+    }
+
+    private fun executeLocalDeviceCommand(command: VoiceCommand, rawInput: String, isVoice: Boolean) {
+        viewModelScope.launch {
+            val result = VoiceCommandExecutor.execute(command, getApplication())
+            when (result) {
+                is VoiceCommandResult.Handled -> {
+                    repository.recordCommandInteraction(rawInput, result.replyText, isError = false)
+                    _uiState.update {
+                        it.copy(
+                            inputText = "",
+                            voiceState = if (isVoice && it.isVoiceRepliesEnabled) VoiceState.SPEAKING else VoiceState.IDLE,
+                            voiceStatusMessage = null,
+                            lastActionFeedback = result.replyText
+                        )
+                    }
+                    if (isVoice && _uiState.value.isVoiceRepliesEnabled) {
+                        voiceTtsManager.speak(result.replyText, _uiState.value.voiceLanguage)
+                    }
+                }
+                is VoiceCommandResult.RequiresConfirmation -> {
+                    confirmationManager.requestConfirmation(result.prompt, result.commandToExecute)
+                    repository.recordCommandInteraction(rawInput, result.prompt, isError = false)
+                    _uiState.update {
+                        it.copy(
+                            inputText = "",
+                            voiceState = if (isVoice && it.isVoiceRepliesEnabled) VoiceState.SPEAKING else VoiceState.IDLE,
+                            voiceStatusMessage = null
+                        )
+                    }
+                    if (isVoice && _uiState.value.isVoiceRepliesEnabled) {
+                        voiceTtsManager.speak(result.prompt, _uiState.value.voiceLanguage)
+                    }
+                }
+                is VoiceCommandResult.ForwardToAi -> {
+                    _uiState.update { it.copy(inputText = "", isLoading = true) }
+                    executeAiMessage(result.prompt, isSpokenResponseRequested = isVoice, providerOverride = result.providerOverride)
+                }
+                is VoiceCommandResult.Error -> {
+                    repository.recordCommandInteraction(rawInput, result.errorMessage, isError = true)
+                    _uiState.update {
+                        it.copy(
+                            inputText = "",
+                            voiceState = VoiceState.IDLE,
+                            voiceStatusMessage = null,
+                            errorMessage = result.errorMessage
+                        )
+                    }
+                    if (isVoice && _uiState.value.isVoiceRepliesEnabled) {
+                        voiceTtsManager.speak(result.errorMessage, _uiState.value.voiceLanguage)
                     }
                 }
             }
-        } else {
-            // Voice commands disabled: Treat all voice input as conversational AI query
-            _uiState.update { it.copy(inputText = "", isLoading = true) }
-            executeAiMessage(trimmed, isSpokenResponseRequested = true)
+        }
+    }
+
+    fun confirmPendingAction() {
+        val confirmedCmd = confirmationManager.confirmPending() ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(pendingConfirmation = null) }
+            val result = VoiceCommandExecutor.execute(confirmedCmd, getApplication())
+            when (result) {
+                is VoiceCommandResult.Handled -> {
+                    repository.recordCommandInteraction("Confirm", result.replyText, isError = false)
+                    _uiState.update { it.copy(lastActionFeedback = result.replyText) }
+                    if (_uiState.value.isVoiceRepliesEnabled) {
+                        voiceTtsManager.speak(result.replyText, _uiState.value.voiceLanguage)
+                    }
+                }
+                is VoiceCommandResult.Error -> {
+                    repository.recordCommandInteraction("Confirm", result.errorMessage, isError = true)
+                    _uiState.update { it.copy(errorMessage = result.errorMessage) }
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    fun cancelPendingAction() {
+        if (confirmationManager.cancelPending()) {
+            viewModelScope.launch {
+                repository.recordCommandInteraction("Cancel", "Action cancelled.", isError = false)
+                _uiState.update {
+                    it.copy(
+                        pendingConfirmation = null,
+                        lastActionFeedback = "Action cancelled."
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelActiveTask() {
+        taskExecutor.cancelCurrentTask()
+        _uiState.update { it.copy(activeTaskPlan = null) }
+    }
+
+    private fun executeAiMessage(
+        promptText: String,
+        isSpokenResponseRequested: Boolean,
+        providerOverride: AiProviderType? = null
+    ) {
+        viewModelScope.launch {
+            val result = repository.sendMessage(promptText, providerOverride)
+            when (result) {
+                is NetworkResult.Success -> {
+                    val rawContent = result.data.content
+                    val parsed = AiActionTagParser.parse(rawContent)
+
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            voiceState = if (isSpokenResponseRequested && it.isVoiceRepliesEnabled) VoiceState.SPEAKING else VoiceState.IDLE,
+                            voiceStatusMessage = null
+                        )
+                    }
+
+                    if (isSpokenResponseRequested && _uiState.value.isVoiceRepliesEnabled) {
+                        voiceTtsManager.speak(parsed.displayText, _uiState.value.voiceLanguage)
+                    }
+
+                    // If the AI model identified an action, execute it seamlessly!
+                    if (parsed.actionToExecute != null) {
+                        val actionResult = VoiceCommandExecutor.execute(parsed.actionToExecute, getApplication())
+                        if (actionResult is VoiceCommandResult.Handled) {
+                            _uiState.update { it.copy(lastActionFeedback = actionResult.replyText) }
+                        }
+                    }
+                }
+                is NetworkResult.Error -> {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            voiceState = VoiceState.IDLE,
+                            voiceStatusMessage = null,
+                            errorMessage = result.userFriendlyMessage
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -438,7 +603,7 @@ class ChatViewModel(
     }
 
     fun executeLocalAction(commandText: String, isVoice: Boolean = false) {
-        handleVoiceInput(commandText)
+        processUnifiedInput(commandText, isVoice = isVoice)
     }
 
     override fun onCleared() {
